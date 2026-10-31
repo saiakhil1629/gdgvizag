@@ -935,3 +935,76 @@ body:not(.has-sfx) .sfx { display: none; }
 .auth-msg.is-warn { background: var(--yellow-c); color: var(--on-yellow-c); }
 .auth-alt { margin-top: 22px; text-align: center; color: var(--on-2); }
 .auth-alt a { color: var(--blue); font-weight: 600; }
+
+/* Event registration (community page) */
+.hk-card { padding: clamp(28px, 5vw, 56px); border-radius: 56px 56px 56px 120px; background: var(--blue-c); color: var(--on-blue-c); }
+.hk-card h2 { max-width: 22ch; font-size: clamp(30px, 5vw, 56px); letter-spacing: -0.04em; line-height: 1; }
+.hk-card .sub { color: inherit; opacity: .8; margin: 14px 0 12px; }
+.hk-card p { max-width: 56ch; }
+.hk-card .cta { margin-top: 22px; }
+.hk-panel { margin-top: 24px; padding: clamp(22px, 4vw, 40px); border-radius: 40px 40px 40px 96px; background: var(--surface-2); max-width: 820px; }
+.hk-step { display: grid; gap: 16px; }
+.hk-step h3 { font-size: clamp(26px, 4vw, 36px); letter-spacing: -0.03em; }
+.hk-step h4 { font-size: 20px; margin-bottom: 4px; }
+.hk-stepno { font-weight: 700; font-size: 14px; color: var(--blue); text-transform: uppercase; letter-spacing: .06em; }
+.hk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.hk-panel .field input, .hk-panel .field textarea { background: var(--surface); }
+.field textarea { padding: 16px 22px; border-radius: 20px; border: 0; background: var(--surface-2); color: var(--on); font: 500 18px/1.4 var(--font); resize: vertical; box-shadow: inset 0 0 0 2px transparent; }
+.field textarea:focus { outline: none; box-shadow: inset 0 0 0 3px var(--g-blue); }
+.field input:disabled, .field textarea:disabled { opacity: .5; cursor: not-allowed; }
+.hk-roles { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.hk-role { display: grid; gap: 6px; text-align: left; padding: 22px; border: 0; border-radius: 28px; background: var(--surface); color: var(--on); font: 500 16px var(--font); cursor: pointer; box-shadow: inset 0 0 0 2px var(--outline); transition: border-radius .35s var(--spring), box-shadow .2s; }
+.hk-role b { font-size: 22px; letter-spacing: -0.02em; }
+.hk-role span { color: var(--on-2); }
+.hk-role:hover { border-radius: 36px; }
+.hk-role.on { background: var(--blue-c); color: var(--on-blue-c); box-shadow: inset 0 0 0 3px var(--g-blue); }
+.hk-role.on span { color: inherit; opacity: .8; }
+.hk-sub { margin-top: 4px; }
+.hk-note { color: var(--on-2); font-weight: 500; }
+.hk-code { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 18px; border-radius: 24px; background: var(--surface); }
+.hk-code span { color: var(--on-2); font-weight: 600; font-size: 14px; }
+.hk-code b { font: 700 26px ui-monospace, Consolas, monospace; letter-spacing: .08em; }
+.hk-people { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.hk-people li { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 20px; background: var(--surface); }
+.hk-people li div { flex: 1; display: grid; }
+.hk-people small, .adm-table small { color: var(--on-2); font-size: 13.5px; }
+.hk-av { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--blue-c); color: var(--on-blue-c); font-weight: 700; }
+.hk-tag { display: inline-block; padding: 4px 12px; border-radius: 99px; background: var(--green-c); color: var(--on-green-c); font-size: 13px; font-weight: 700; }
+.hk-tag.warn { background: var(--yellow-c); color: var(--on-yellow-c); }
+.hk-project { display: grid; gap: 14px; padding-top: 6px; }
+.hk-project form { display: grid; gap: 16px; }
+.hk-project p { overflow-wrap: anywhere; }
+.hk-actions { margin-top: 4px; }
+@media (max-width: 700px) { .hk-grid, .hk-roles { grid-template-columns: 1fr; } .hk-card { border-radius: 36px 36px 36px 72px; } }
+
+/* Admin dashboard */
+.adm-wrap h1 { font-size: clamp(44px, 8vw, 96px); font-weight: 800; letter-spacing: -0.05em; line-height: .9; padding-top: 56px; }
+.adm { margin-top: 32px; display: grid; gap: 22px; }
+.adm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+.adm-stats div { display: grid; gap: 2px; padding: 18px 22px; border-radius: 28px; background: var(--surface-2); }
+.adm-stats strong { font-size: 40px; letter-spacing: -0.03em; line-height: 1; }
+.adm-stats span { color: var(--on-2); font-weight: 600; font-size: 14px; }
+.adm-tools { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.adm-search { flex: 1; min-width: 220px; }
+.adm-search input { height: 52px; font-size: 17px; }
+.adm-team { padding: clamp(16px, 3vw, 28px); border-radius: 36px 36px 36px 72px; background: var(--surface-2); display: grid; gap: 14px; }
+.adm-team header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.adm-team h3 { font-size: 26px; letter-spacing: -0.03em; }
+.adm-team header small { color: var(--on-2); font: 600 13px ui-monospace, Consolas, monospace; }
+.adm-proj { padding: 14px 18px; border-radius: 22px; background: var(--surface); display: grid; gap: 6px; }
+.adm-proj p { margin: 0; overflow-wrap: anywhere; }
+.adm-scroll { overflow-x: auto; border-radius: 22px; background: var(--surface); }
+.adm-table { width: 100%; border-collapse: collapse; min-width: 760px; }
+.adm-table th { text-align: left; padding: 12px 14px; font-size: 13px; color: var(--on-2); text-transform: uppercase; letter-spacing: .05em; }
+.adm-table td { padding: 12px 14px; vertical-align: top; border-top: 1px solid var(--outline); }
+.adm-table td small { display: block; }
+.adm-eval .adm-chk + .adm-chk { margin-top: 6px; }
+.adm-chk { display: flex; align-items: center; gap: 8px; font-weight: 500; font-size: 15px; cursor: pointer; white-space: nowrap; }
+.adm-chk input { width: 20px; height: 20px; accent-color: var(--g-blue); }
+.adm-notes { width: 100%; min-width: 150px; height: 40px; padding: 0 14px; border: 0; border-radius: 14px; background: var(--surface-2); color: var(--on); font: 500 15px var(--font); }
+.adm-notes:focus { outline: 3px solid var(--g-blue); }
+.adm-saved { display: block; min-height: 18px; margin-top: 4px; font-size: 12.5px; color: var(--on-2); }
+.hk-panel { scroll-margin-top: 110px; }
+.hk-who { margin: 0 0 18px; padding: 8px 16px; width: fit-content; max-width: 100%; border-radius: 99px; background: var(--green-c); color: var(--on-green-c); font-weight: 600; font-size: 14.5px; overflow-wrap: anywhere; }
+.auth-done { display: grid; gap: 18px; }
+.auth-card form[hidden], .auth-alt[hidden] { display: none; }
