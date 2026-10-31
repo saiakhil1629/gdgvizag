@@ -63,6 +63,16 @@ create table if not exists public.evaluations (
   updated_at timestamptz not null default now()
 );
 
+-- Review fields: idea and presentation are 1 to 5 stars, volunteering interest is yes/no.
+-- (The older idea_good / talks_well / gdg_fit columns are no longer used by the site and can be dropped.)
+alter table public.evaluations add column if not exists idea_rating smallint;
+alter table public.evaluations add column if not exists presentation_rating smallint;
+alter table public.evaluations add column if not exists volunteer_interest boolean not null default false;
+alter table public.evaluations drop constraint if exists evaluations_idea_rating_check;
+alter table public.evaluations add constraint evaluations_idea_rating_check check (idea_rating is null or idea_rating between 1 and 5);
+alter table public.evaluations drop constraint if exists evaluations_presentation_rating_check;
+alter table public.evaluations add constraint evaluations_presentation_rating_check check (presentation_rating is null or presentation_rating between 1 and 5);
+
 -- Add admins here. Add more rows any time.
 insert into public.admins (email) values ('saiakhil1629@gmail.com') on conflict do nothing;
 

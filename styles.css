@@ -81,7 +81,7 @@ svg { max-width: 100%; }
 .nav { position: fixed; inset: 14px 0 auto; z-index: 50; display: flex; justify-content: center; align-items: center; gap: 12px; pointer-events: none; padding: 0 12px; }
 .nav-pill { pointer-events: auto; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex: 0 1 820px; min-width: 0; padding: 8px 8px 8px 22px; border-radius: 99px; background: color-mix(in srgb, var(--surface-2) 82%, transparent); backdrop-filter: blur(18px) saturate(1.4); }
 .brand { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; color: var(--on); font-weight: 700; font-size: 18px; letter-spacing: -0.02em; }
-.brand-mark { width: 34px; height: 22px; flex: none; }
+.brand-mark { width: 40px; height: 22px; flex: none; object-fit: contain; }
 .menu { display: flex; align-items: center; gap: 4px; }
 .menu a { color: var(--on-2); text-decoration: none; font-weight: 500; font-size: 15px; padding: 10px 12px; border-radius: 99px; transition: background .2s, border-radius .3s var(--spring); }
 .menu a:hover { background: color-mix(in srgb, var(--on) 8%, transparent); border-radius: 14px; }
@@ -1042,3 +1042,26 @@ body:not(.has-sfx) .sfx { display: none; }
 .adm-stars span { color: var(--outline); }
 .adm-links small { color: var(--on-2); }
 .adm-lead td { background: color-mix(in srgb, var(--blue-c) 35%, transparent); }
+
+/* Logos */
+.foot-logo { display: inline-block; padding: 12px 18px; border-radius: 22px; background: #fff; }
+.foot-logo img { display: block; width: min(340px, 100%); height: auto; }
+.built { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; margin: 28px 0 8px; padding: 14px 22px; border-radius: 28px; background: #fff; color: #202124; width: fit-content; max-width: 100%; }
+.built p { margin: 0; font-weight: 500; font-size: 15.5px; color: #202124; }
+.built-mark { width: 44px; height: auto; }
+.built-word { height: 26px; width: auto; }
+
+/* Admin review: star ratings */
+.adm-eval { min-width: 250px; }
+.adm-rate { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.adm-rl { font-weight: 600; font-size: 14.5px; }
+.adm-rs { display: inline-flex; align-items: center; gap: 1px; }
+.adm-rs label { position: relative; cursor: pointer; line-height: 1; }
+.adm-rs input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.adm-rs label > span { display: block; padding: 2px 1px; font-size: 24px; color: var(--outline); transition: color .12s, transform .2s var(--spring); }
+.adm-rs label:hover > span { transform: scale(1.18); }
+.adm-rs label.on > span { color: var(--g-yellow); }
+.adm-rs label:has(input:focus-visible) > span { outline: 2px solid var(--g-blue); border-radius: 6px; }
+.adm-clear { margin-left: 6px; padding: 2px 8px; border: 0; border-radius: 99px; background: var(--surface-2); color: var(--on-2); font: 600 12px var(--font); cursor: pointer; }
+.adm-clear[hidden] { display: none; }
+.adm-chk { margin-top: 8px; }
