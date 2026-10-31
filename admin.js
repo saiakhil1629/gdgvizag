@@ -55,7 +55,7 @@
     return `<tr data-uid="${s(p.user_id)}"${lead ? ' class="adm-lead"' : ""}>
       <td><b>${s(p.name)}</b>${lead ? ' <span class="hk-tag">Lead</span>' : ""}<small>${s(p.college)}</small></td>
       <td><a href="mailto:${s(p.email)}">${s(p.email)}</a><small>${s(p.phone)}</small></td>
-      <td class="adm-links">${[["GitHub", p.github_url], ["LinkedIn", p.linkedin_url], ["Best project", p.best_project_url]].filter(([, u]) => isUrl(u)).map(([n, u]) => `<a href="${s(u)}" target="_blank" rel="noopener noreferrer">${n}</a>`).join("")}<span>${stars(p.coding_level)}</span></td>
+      <td class="adm-links">${[["GitHub", p.github_url], ["LinkedIn", p.linkedin_url], ["Best project", p.best_project_url]].filter(([, u]) => isUrl(u)).map(([n, u]) => `<a href="${s(u)}" target="_blank" rel="noopener noreferrer">${n}</a>`).join("")}<span>${stars(p.coding_level)}</span><span class="adm-startup ${p.wants_startup === true ? "yes" : ""}">Startup: ${p.wants_startup === true ? "Yes" : p.wants_startup === false ? "No" : "-"}</span></td>
       <td class="adm-eval">${rate("idea_rating", "Idea")}${rate("presentation_rating", "Presentation skills")}${volunteer}</td>
       <td><input class="adm-notes" type="text" maxlength="2000" placeholder="Notes" value="${s(e.notes)}" aria-label="Notes for ${s(p.name)}"><span class="adm-saved" aria-live="polite"></span></td>
     </tr>`;
@@ -85,7 +85,8 @@
         <div><strong>${data.profiles.length}</strong><span>Registered</span></div>
         <div><strong>${data.teams.length}</strong><span>Teams</span></div>
         <div><strong>${data.teams.filter((t) => t.submitted_at).length}</strong><span>Projects submitted</span></div>
-        <div><strong>${done}</strong><span>Want to volunteer</span></div></div>
+        <div><strong>${done}</strong><span>Want to volunteer</span></div>
+        <div><strong>${data.profiles.filter((x) => x.wants_startup === true).length}</strong><span>Want a startup</span></div></div>
       <div class="adm-tools"><label class="field adm-search">Search<input id="adm-q" type="search" placeholder="Name, college, team, email" value="${s(q)}"></label>
         <button class="btn btn-sm btn-tonal" id="adm-refresh" type="button">Refresh</button><button class="btn btn-sm btn-tonal" id="adm-csv" type="button">Export CSV</button></div>
       ${cards + soloCard || '<p class="hk-note">Nothing to show yet.</p>'}`;
@@ -132,9 +133,9 @@
   function exportCsv() {
     const { groups, solo, ev } = index();
     const cell = (v) => { let t = String(v == null ? "" : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
-    const head = ["Team", "Team code", "Role", "Name", "College", "Phone", "Email", "GitHub", "LinkedIn", "Coding level (0-5)", "Best project", "Team problem", "Team idea", "Team project URL", "Idea rating (1-5)", "Presentation skills (1-5)", "Volunteering interest", "Notes"];
+    const head = ["Team", "Team code", "Role", "Name", "College", "Phone", "Email", "GitHub", "LinkedIn", "Coding level (0-5)", "Wants to build a startup", "Best project", "Team problem", "Team idea", "Team project URL", "Idea rating (1-5)", "Presentation skills (1-5)", "Volunteering interest", "Notes"];
     const rows = [];
-    const add = (t, p, lead) => { const e = ev.get(p.user_id) || {}; rows.push([t ? t.name : "(no team)", t ? t.code : "", t ? (lead ? "Lead" : "Member") : "", p.name, p.college, p.phone, p.email, p.github_url, p.linkedin_url, p.coding_level, p.best_project_url, t ? t.problem_statement : "", t ? t.idea : "", t ? t.project_url : "", e.idea_rating || "", e.presentation_rating || "", e.volunteer_interest ? "Yes" : "", e.notes || ""]); };
+    const add = (t, p, lead) => { const e = ev.get(p.user_id) || {}; rows.push([t ? t.name : "(no team)", t ? t.code : "", t ? (lead ? "Lead" : "Member") : "", p.name, p.college, p.phone, p.email, p.github_url, p.linkedin_url, p.coding_level, p.wants_startup === true ? "Yes" : p.wants_startup === false ? "No" : "", p.best_project_url, t ? t.problem_statement : "", t ? t.idea : "", t ? t.project_url : "", e.idea_rating || "", e.presentation_rating || "", e.volunteer_interest ? "Yes" : "", e.notes || ""]); };
     groups.forEach(({ team: t, people }) => people.forEach((p) => add(t, p, p.user_id === t.lead_id)));
     solo.forEach((p) => add(null, p, false));
     const csv = [head, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");

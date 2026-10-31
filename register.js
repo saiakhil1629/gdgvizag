@@ -95,6 +95,10 @@
         <label class="field">LinkedIn profile link<input name="linkedin" type="url" placeholder="https://www.linkedin.com/in/your-name" maxlength="300" pattern="https?://([a-z]{2,3}\.)?linkedin\.com/.+" title="A link like https://www.linkedin.com/in/your-name" required value="${s(p.linkedin_url)}"></label>
       </div>
       <label class="field">Your own project URL (your best project)<input name="best" type="url" placeholder="https://" maxlength="500" required value="${s(p.best_project_url)}"></label>
+      <fieldset class="choice hk-startup"><legend>Do you want to turn your idea into a startup?</legend>
+        <label><input type="radio" name="startup" value="yes" required ${p.wants_startup === true ? "checked" : ""}><span>Yes</span></label>
+        <label><input type="radio" name="startup" value="no" required ${p.wants_startup === false ? "checked" : ""}><span>No</span></label>
+      </fieldset>
       <fieldset class="hk-level"><legend>Your coding level, from 0 to 5 stars</legend>
         <div class="hk-stars" role="radiogroup" aria-label="Coding level">
           ${[0, 1, 2, 3, 4, 5].map((n) => `<label class="hk-star${n === 0 ? " zero" : ""}"><input type="radio" name="level" value="${n}" required ${p.coding_level === n ? "checked" : ""}><span aria-hidden="true">${n === 0 ? "0" : "&#9733;"}</span><i class="sr">${n} ${n === 1 ? "star" : "stars"}</i></label>`).join("")}
@@ -124,7 +128,7 @@
       const row = {
         user_id: state.session.user.id, name: f.name.value.trim(), college: f.college.value.trim(),
         phone: f.phone.value.trim(), email: f.email.value.trim(), best_project_url: f.best.value.trim(),
-        github_url: f.github.value.trim(), linkedin_url: f.linkedin.value.trim(), coding_level: +f.level.value,
+        github_url: f.github.value.trim(), linkedin_url: f.linkedin.value.trim(), coding_level: +f.level.value, wants_startup: f.startup.value === "yes",
         updated_at: new Date().toISOString(),
       };
       const { data, error } = await sb.from("profiles").upsert(row, { onConflict: "user_id" }).select().single();

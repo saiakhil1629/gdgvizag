@@ -18,6 +18,8 @@ create table if not exists public.profiles (
 alter table public.profiles add column if not exists github_url text;
 alter table public.profiles add column if not exists linkedin_url text;
 alter table public.profiles add column if not exists coding_level smallint;
+-- Added later: does this person want to turn their idea into a startup? (true = yes, false = no)
+alter table public.profiles add column if not exists wants_startup boolean;
 alter table public.profiles drop constraint if exists profiles_github_url_check;
 alter table public.profiles add constraint profiles_github_url_check
   check (github_url is null or (github_url ~* '^https?://(www\.)?github\.com/.+' and char_length(github_url) <= 300));
