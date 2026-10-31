@@ -1106,3 +1106,10 @@ body:not(.has-sfx) .sfx { display: none; }
   .adm-search { flex: 1 1 100%; }
 }
 @media (max-width: 760px) { .adm-links a { margin-right: 18px; } }
+
+/* Event materials list on the Community registration card */
+.hk-materials { margin-top: 18px; }
+.hk-materials h3 { margin: 0 0 6px; font-size: 16px; }
+.hk-materials ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.hk-materials a { display: inline-block; padding: 8px 0; font-weight: 600; }
+.hk-materials small { display: block; color: var(--on-2); }

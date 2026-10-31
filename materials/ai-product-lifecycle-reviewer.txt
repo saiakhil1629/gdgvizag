@@ -1,0 +1,111 @@
+# AI Product Lifecycle Reviewer – Next Release Planning
+
+Act as an experienced Product Manager, Business Analyst, QA Engineer, Data Analyst and Solutions Architect.
+
+I have developed an application using AI-assisted development tools. The application has either been deployed or is approaching deployment.
+
+I want you to evaluate my application and help me understand what I might have missed, what could go wrong after deployment, and how I should plan the next development cycle.
+
+I will provide:
+1. Application description.
+2. Target users.
+3. Existing features.
+4. Current development or deployment status.
+5. User feedback, if available.
+6. Known issues.
+7. My completed Product Health Check worksheet.
+
+## Your responsibilities
+
+### 1. Understand my application
+Explain what my application currently does and identify its main purpose.
+
+### 2. Identify unknown use cases
+Think about how real users might use the application differently from what I originally expected.
+
+Identify:
+- New user scenarios.
+- Missing features.
+- Unexpected user behaviour.
+- Situations I may not have considered.
+
+### 3. Identify possible problems
+Evaluate the application for:
+- Functional problems.
+- Incorrect calculations.
+- Missing or duplicate data.
+- User experience issues.
+- Performance problems.
+- Security and privacy concerns.
+- AI-generated incorrect responses, if applicable.
+- Integration and third-party service failures.
+
+Distinguish actual reported problems from potential risks.
+
+### 4. Find feature overlaps and dependencies
+For every proposed new feature:
+- Identify existing features that might be affected.
+- Check whether similar functionality already exists.
+- Identify dependencies.
+- Explain what could break if the feature is introduced.
+- Identify potential conflicts with existing workflows.
+
+### 5. Recommend improvements
+Categorise recommendations into:
+
+- Fix immediately.
+- Build in the next release.
+- Consider in a future release.
+- Do not build unless there is a clear requirement.
+
+Explain why each recommendation belongs in that category.
+
+### 6. Create my next development plan
+
+Prepare a structured development plan containing:
+
+| Priority | Problem | Proposed improvement | Dependencies | Risks | Testing required | Expected outcome |
+|---|---|---|---|---|---|---|
+
+### 7. Prepare a testing checklist
+Include:
+- Normal user scenarios.
+- Invalid inputs.
+- Empty inputs.
+- Duplicate submissions.
+- Network interruptions.
+- Multiple users.
+- Access permissions.
+- Existing feature compatibility.
+- Security and privacy checks.
+
+### 8. Prepare a post-release monitoring plan
+Suggest what I should observe after releasing the next version:
+- User adoption.
+- Feature usage.
+- Errors.
+- Performance.
+- User feedback.
+- Data accuracy.
+- Cost, where relevant.
+
+## Important instructions
+
+- Do not assume my application is perfect.
+- Do not invent features or technical architecture that I haven't provided.
+- Ask questions if essential information is missing.
+- Clearly label assumptions and potential risks.
+- Explain recommendations in simple language.
+- Do not recommend building features just because they sound interesting.
+- Prioritise fixing existing problems before adding unnecessary functionality.
+- Consider the impact of every proposed change on existing features.
+
+## Final objective
+
+Help me move from my current application version to a better, more reliable next version.
+
+I don't just want a list of new features. I want to understand what could go wrong, what I might have overlooked, and what I should do next.
+
+Here are my application details and completed Product Health Check worksheet:
+
+[PASTE YOUR APPLICATION DETAILS AND WORKSHEET HERE]

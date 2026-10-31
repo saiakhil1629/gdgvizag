@@ -76,7 +76,7 @@ alter table public.evaluations drop constraint if exists evaluations_presentatio
 alter table public.evaluations add constraint evaluations_presentation_rating_check check (presentation_rating is null or presentation_rating between 1 and 5);
 
 -- Add admins here. Add more rows any time.
-insert into public.admins (email) values ('saiakhil1629@gmail.com') on conflict do nothing;
+insert into public.admins (email) values ('saiakhil1629@gmail.com'), ('karanamkarthik2004@gmail.com') on conflict do nothing;
 
 -- ---------------------------------------------------------------- helpers
 create or replace function public.is_admin() returns boolean
