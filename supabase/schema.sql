@@ -175,7 +175,6 @@ begin
   select * into t from teams where lead_id = uid for update;
   if not found then raise exception 'Only the team lead can submit the project.'; end if;
   select count(*) into n from team_members where team_id = t.id;
-  if n < 3 then raise exception 'Your team needs at least 3 members before you can submit (now %).', n; end if;
   p_problem := btrim(coalesce(p_problem, ''));
   p_idea := btrim(coalesce(p_idea, ''));
   p_url := btrim(coalesce(p_url, ''));

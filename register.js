@@ -1,7 +1,7 @@
 // Community page: event registration. Details, then Team Lead (creates a team code) or Team Member (joins with a code).
-// The lead submits the team's project once the team has at least MIN members.
+// The lead can submit the team project at any time. Teams hold up to MAX members.
 (() => {
-  const MIN = 3, MAX = 6;
+  const MIN = 1, MAX = 6;
   const root = document.getElementById("hackathon");
   if (!root) return;
   const panel = document.getElementById("hk-panel");
@@ -142,7 +142,7 @@
     const lead = state.role === "lead", member = state.role === "member";
     panel.innerHTML = `<div class="hk-step">
       <p class="hk-stepno">Step 2 of 2</p><h3>Build your team</h3>
-      <p>Hi ${s(state.profile.name)}. Teams have ${MIN} to ${MAX} members. Pick your role.</p>
+      <p>Hi ${s(state.profile.name)}. Teams can have up to ${MAX} members. Pick your role.</p>
       <div class="hk-roles" role="group" aria-label="Your role">
         <button type="button" class="hk-role${lead ? " on" : ""}" data-role="lead" aria-pressed="${lead}"><b>Team Lead</b><span>Create a team and get a code to share.</span></button>
         <button type="button" class="hk-role${member ? " on" : ""}" data-role="member" aria-pressed="${member}"><b>Team Member</b><span>Join a team with the code from your lead.</span></button>

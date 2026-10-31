@@ -49,6 +49,7 @@
     if (/invalid login credentials/i.test(m)) return "That email and password don't match.";
     if (/email not confirmed/i.test(m)) return "Confirm your email first. Check your inbox for the link.";
     if (/already registered/i.test(m)) return "An account with this email already exists. Try logging in.";
+    if (/rate limit|exceeded|too many|over_email/i.test(m)) return "Too many emails were sent just now. Please wait about an hour and try again, or ask the GDG Vizag team for help.";
     return m;
   };
 

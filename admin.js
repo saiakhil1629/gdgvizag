@@ -6,7 +6,7 @@
   const isUrl = (u) => /^https?:\/\//i.test(u || "");
   const link = (u) => (isUrl(u) ? `<a href="${s(u)}" target="_blank" rel="noopener noreferrer">Open</a>` : "");
   const notice = (html, kind = "warn") => { host.innerHTML = `<p class="auth-msg is-${kind}">${html}</p>`; };
-  const MIN = 3;
+  const MIN = 1;
   let me, data = { teams: [], members: [], profiles: [], evals: [] };
 
   async function boot() {
@@ -72,7 +72,7 @@
       const full = people.length >= MIN;
       return `<article class="adm-team">
         <header><div><h3>${s(t.name)}</h3><small>Code ${s(t.code)}</small></div>
-          <span class="hk-tag ${full ? "" : "warn"}">${people.length} member${people.length === 1 ? "" : "s"}${full ? "" : ` (needs ${MIN}+)`}</span></header>
+          <span class="hk-tag ${full ? "" : "warn"}">${people.length} member${people.length === 1 ? "" : "s"}${full ? "" : ``}</span></header>
         <div class="adm-proj">${t.submitted_at
           ? `<p><b>Problem:</b> ${s(t.problem_statement)}</p><p><b>Idea:</b> ${s(t.idea)}</p><p><b>Project:</b> ${isUrl(t.project_url) ? `<a href="${s(t.project_url)}" target="_blank" rel="noopener noreferrer">${s(t.project_url)}</a>` : "-"}</p>`
           : "<p><i>No project submitted yet.</i></p>"}</div>
