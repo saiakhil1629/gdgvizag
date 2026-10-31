@@ -978,7 +978,8 @@ body:not(.has-sfx) .sfx { display: none; }
 @media (max-width: 700px) { .hk-grid, .hk-roles { grid-template-columns: 1fr; } .hk-card { border-radius: 36px 36px 36px 72px; } }
 
 /* Admin dashboard */
-.adm-wrap h1 { font-size: clamp(44px, 8vw, 96px); font-weight: 800; letter-spacing: -0.05em; line-height: .9; padding-top: 56px; }
+.adm-wrap { padding-top: 132px; }
+.adm-wrap h1 { font-size: clamp(44px, 8vw, 96px); font-weight: 800; letter-spacing: -0.05em; line-height: .9; margin-top: 8px; }
 .adm { margin-top: 32px; display: grid; gap: 22px; }
 .adm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
 .adm-stats div { display: grid; gap: 2px; padding: 18px 22px; border-radius: 28px; background: var(--surface-2); }
@@ -1008,3 +1009,15 @@ body:not(.has-sfx) .sfx { display: none; }
 .hk-who { margin: 0 0 18px; padding: 8px 16px; width: fit-content; max-width: 100%; border-radius: 99px; background: var(--green-c); color: var(--on-green-c); font-weight: 600; font-size: 14.5px; overflow-wrap: anywhere; }
 .auth-done { display: grid; gap: 18px; }
 .auth-card form[hidden], .auth-alt[hidden] { display: none; }
+
+/* Nav: keep each item on one line. Admins get one extra link, so tighten the bar a little for them. */
+.menu a, .brand span { white-space: nowrap; }
+.nav.has-admin .nav-pill { gap: 14px; padding-left: 18px; }
+.nav.has-admin .menu a { padding: 10px 9px; }
+.nav.has-admin .menu a.btn { padding: 12px 18px; }
+@media (min-width: 1141px) and (max-width: 1320px) {
+  .nav.has-admin .nav-time button { width: 38px; min-height: 38px; padding: 0; }
+  .nav.has-admin .nav-time button span { display: none; }
+  .nav.has-admin .nav-time button svg { display: block; }
+}
+@media (max-width: 1140px) { .nav.has-admin .menu a { padding: 14px 18px; } .nav.has-admin .menu a.btn { padding: 12px 22px; } }

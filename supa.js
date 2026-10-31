@@ -24,5 +24,6 @@ const sb = SUPABASE.url && SUPABASE.anonKey && window.supabase
     a.textContent = "Admin";
     if (/admin\.html$/.test(location.pathname)) a.setAttribute("aria-current", "page");
     login.before(a);
+    document.querySelector(".nav")?.classList.add("has-admin");
   }
 })();
