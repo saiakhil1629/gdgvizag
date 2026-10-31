@@ -40,24 +40,26 @@
     const inTeam = new Map(data.members.map((x) => [x.user_id, x.team_id]));
     const groups = data.teams.map((t) => ({
       team: t,
-      people: data.members.filter((x) => x.team_id === t.id).map((x) => prof.get(x.user_id)).filter(Boolean),
+      people: data.members.filter((x) => x.team_id === t.id).map((x) => prof.get(x.user_id)).filter(Boolean)
+        .sort((x, y) => (y.user_id === t.lead_id) - (x.user_id === t.lead_id)), // lead first, then members in join order
     }));
     const solo = data.profiles.filter((x) => !inTeam.has(x.user_id));
     return { groups, solo, ev };
   };
 
+  const stars = (n) => (n == null ? "-" : `<span class="adm-stars" title="${n} of 5">${"&#9733;".repeat(n)}<span>${"&#9733;".repeat(5 - n)}</span></span> <small>${n}/5</small>`);
   const person = (p, lead, ev) => {
     const e = ev.get(p.user_id) || {};
     const box = (k, label) => `<label class="adm-chk"><input type="checkbox" data-k="${k}" ${e[k] ? "checked" : ""}><span>${label}</span></label>`;
-    return `<tr data-uid="${s(p.user_id)}">
+    return `<tr data-uid="${s(p.user_id)}"${lead ? ' class="adm-lead"' : ""}>
       <td><b>${s(p.name)}</b>${lead ? ' <span class="hk-tag">Lead</span>' : ""}<small>${s(p.college)}</small></td>
       <td><a href="mailto:${s(p.email)}">${s(p.email)}</a><small>${s(p.phone)}</small></td>
-      <td>${link(p.best_project_url)}</td>
+      <td class="adm-links">${[["GitHub", p.github_url], ["LinkedIn", p.linkedin_url], ["Best project", p.best_project_url]].filter(([, u]) => isUrl(u)).map(([n, u]) => `<a href="${s(u)}" target="_blank" rel="noopener noreferrer">${n}</a>`).join("")}<span>${stars(p.coding_level)}</span></td>
       <td class="adm-eval">${box("idea_good", "Good idea")}${box("talks_well", "Talks well")}${box("gdg_fit", "GDG team fit")}</td>
       <td><input class="adm-notes" type="text" maxlength="2000" placeholder="Notes" value="${s(e.notes)}" aria-label="Notes for ${s(p.name)}"><span class="adm-saved" aria-live="polite"></span></td>
     </tr>`;
   };
-  const table = (rows) => `<div class="adm-scroll"><table class="adm-table"><thead><tr><th>Person</th><th>Contact</th><th>Best project</th><th>Review</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const table = (rows) => `<div class="adm-scroll"><table class="adm-table"><thead><tr><th>Person</th><th>Contact</th><th>Links and level</th><th>Review</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 
   function draw() {
     const { groups, solo, ev } = index();
@@ -109,9 +111,9 @@
   function exportCsv() {
     const { groups, solo, ev } = index();
     const cell = (v) => { let t = String(v == null ? "" : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
-    const head = ["Team", "Team code", "Role", "Name", "College", "Phone", "Email", "Best project", "Team problem", "Team idea", "Team project URL", "Good idea", "Talks well", "GDG fit", "Notes"];
+    const head = ["Team", "Team code", "Role", "Name", "College", "Phone", "Email", "GitHub", "LinkedIn", "Coding level (0-5)", "Best project", "Team problem", "Team idea", "Team project URL", "Good idea", "Talks well", "GDG fit", "Notes"];
     const rows = [];
-    const add = (t, p, lead) => { const e = ev.get(p.user_id) || {}; rows.push([t ? t.name : "(no team)", t ? t.code : "", t ? (lead ? "Lead" : "Member") : "", p.name, p.college, p.phone, p.email, p.best_project_url, t ? t.problem_statement : "", t ? t.idea : "", t ? t.project_url : "", e.idea_good ? "Yes" : "", e.talks_well ? "Yes" : "", e.gdg_fit ? "Yes" : "", e.notes || ""]); };
+    const add = (t, p, lead) => { const e = ev.get(p.user_id) || {}; rows.push([t ? t.name : "(no team)", t ? t.code : "", t ? (lead ? "Lead" : "Member") : "", p.name, p.college, p.phone, p.email, p.github_url, p.linkedin_url, p.coding_level, p.best_project_url, t ? t.problem_statement : "", t ? t.idea : "", t ? t.project_url : "", e.idea_good ? "Yes" : "", e.talks_well ? "Yes" : "", e.gdg_fit ? "Yes" : "", e.notes || ""]); };
     groups.forEach(({ team: t, people }) => people.forEach((p) => add(t, p, p.user_id === t.lead_id)));
     solo.forEach((p) => add(null, p, false));
     const csv = [head, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");

@@ -14,6 +14,20 @@ create table if not exists public.profiles (
   updated_at timestamptz not null default now()
 );
 
+-- Added later: GitHub, LinkedIn and self-rated coding level (0 to 5 stars). Safe on a database that already has profiles.
+alter table public.profiles add column if not exists github_url text;
+alter table public.profiles add column if not exists linkedin_url text;
+alter table public.profiles add column if not exists coding_level smallint;
+alter table public.profiles drop constraint if exists profiles_github_url_check;
+alter table public.profiles add constraint profiles_github_url_check
+  check (github_url is null or (github_url ~* '^https?://(www\.)?github\.com/.+' and char_length(github_url) <= 300));
+alter table public.profiles drop constraint if exists profiles_linkedin_url_check;
+alter table public.profiles add constraint profiles_linkedin_url_check
+  check (linkedin_url is null or (linkedin_url ~* '^https?://([a-z]{2,3}\.)?linkedin\.com/.+' and char_length(linkedin_url) <= 300));
+alter table public.profiles drop constraint if exists profiles_coding_level_check;
+alter table public.profiles add constraint profiles_coding_level_check
+  check (coding_level is null or coding_level between 0 and 5);
+
 create table if not exists public.teams (
   id uuid primary key default gen_random_uuid(),
   code text not null unique,

@@ -1021,3 +1021,24 @@ body:not(.has-sfx) .sfx { display: none; }
   .nav.has-admin .nav-time button svg { display: block; }
 }
 @media (max-width: 1140px) { .nav.has-admin .menu a { padding: 14px 18px; } .nav.has-admin .menu a.btn { padding: 12px 22px; } }
+
+/* Coding level stars and extra profile fields */
+.hk-level { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
+.hk-level legend { font-weight: 600; font-size: 16px; padding: 0; margin-bottom: 8px; }
+.hk-stars { display: flex; flex-wrap: wrap; gap: 6px; }
+.hk-star { position: relative; cursor: pointer; }
+.hk-star input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.hk-star span { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px; background: var(--surface); color: var(--outline); font-size: 28px; font-weight: 700; transition: color .15s, background .2s, border-radius .3s var(--spring), transform .3s var(--spring); }
+.hk-star.zero span { font-size: 20px; color: var(--on-2); }
+.hk-star:hover span { transform: scale(1.08); border-radius: 22px; }
+.hk-star.on span { color: var(--g-yellow); background: var(--yellow-c); }
+.hk-star.zero.pick span { background: var(--blue-c); color: var(--on-blue-c); }
+.hk-star input:focus-visible + span { outline: 3px solid var(--g-blue); outline-offset: 2px; }
+.hk-levelnote { color: var(--on-2); font-weight: 500; font-size: 14.5px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.adm-links { display: grid; gap: 4px; align-content: start; }
+.adm-links a { font-weight: 600; font-size: 14.5px; }
+.adm-stars { color: var(--g-yellow); letter-spacing: 1px; font-size: 17px; }
+.adm-stars span { color: var(--outline); }
+.adm-links small { color: var(--on-2); }
+.adm-lead td { background: color-mix(in srgb, var(--blue-c) 35%, transparent); }

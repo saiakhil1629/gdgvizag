@@ -90,11 +90,30 @@
         <label class="field">Phone<input name="phone" type="tel" autocomplete="tel" pattern="[0-9+() \\-]{7,20}" title="7 to 20 digits" required value="${s(p.phone)}"></label>
         <label class="field">Email<input name="email" type="email" autocomplete="email" maxlength="200" required value="${s(email)}"></label>
       </div>
+      <div class="hk-grid">
+        <label class="field">GitHub profile link<input name="github" type="url" placeholder="https://github.com/your-name" maxlength="300" pattern="https?://(www\.)?github\.com/.+" title="A link like https://github.com/your-name" required value="${s(p.github_url)}"></label>
+        <label class="field">LinkedIn profile link<input name="linkedin" type="url" placeholder="https://www.linkedin.com/in/your-name" maxlength="300" pattern="https?://([a-z]{2,3}\.)?linkedin\.com/.+" title="A link like https://www.linkedin.com/in/your-name" required value="${s(p.linkedin_url)}"></label>
+      </div>
       <label class="field">Your own project URL (your best project)<input name="best" type="url" placeholder="https://" maxlength="500" required value="${s(p.best_project_url)}"></label>
+      <fieldset class="hk-level"><legend>Your coding level, from 0 to 5 stars</legend>
+        <div class="hk-stars" role="radiogroup" aria-label="Coding level">
+          ${[0, 1, 2, 3, 4, 5].map((n) => `<label class="hk-star${n === 0 ? " zero" : ""}"><input type="radio" name="level" value="${n}" required ${p.coding_level === n ? "checked" : ""}><span aria-hidden="true">${n === 0 ? "0" : "&#9733;"}</span><i class="sr">${n} ${n === 1 ? "star" : "stars"}</i></label>`).join("")}
+        </div>
+        <small class="hk-levelnote" id="hk-levelnote"></small>
+      </fieldset>
       <p class="auth-msg hk-msg" role="status" aria-live="polite" hidden></p>
       <div class="cta"><button class="btn" type="submit">${state.profile ? "Save details" : "Save and continue"}</button>${state.profile ? '<button class="btn btn-ghost" type="button" id="hk-cancel">Cancel</button>' : ""}</div>
     </form>`;
     const f = panel.querySelector("#hk-profile");
+    const LEVELS = ["Just starting out", "Beginner", "Learning fast", "Comfortable", "Strong", "Expert"];
+    const paintStars = () => {
+      const v = f.querySelector("input[name=level]:checked");
+      const n = v ? +v.value : -1;
+      f.querySelectorAll(".hk-star").forEach((l) => { const k = +l.querySelector("input").value; l.classList.toggle("on", k > 0 && k <= n); l.classList.toggle("pick", k === n); });
+      f.querySelector("#hk-levelnote").textContent = n < 0 ? "Pick how you rate yourself. Be honest, there are no wrong answers." : `${n} of 5: ${LEVELS[n]}`;
+    };
+    f.querySelectorAll("input[name=level]").forEach((i) => i.addEventListener("change", paintStars));
+    paintStars();
     const c = panel.querySelector("#hk-cancel");
     if (c) c.addEventListener("click", () => { state.editing = false; render(); });
     f.addEventListener("submit", async (e) => {
@@ -105,6 +124,7 @@
       const row = {
         user_id: state.session.user.id, name: f.name.value.trim(), college: f.college.value.trim(),
         phone: f.phone.value.trim(), email: f.email.value.trim(), best_project_url: f.best.value.trim(),
+        github_url: f.github.value.trim(), linkedin_url: f.linkedin.value.trim(), coding_level: +f.level.value,
         updated_at: new Date().toISOString(),
       };
       const { data, error } = await sb.from("profiles").upsert(row, { onConflict: "user_id" }).select().single();
