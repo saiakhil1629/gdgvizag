@@ -62,6 +62,31 @@
   };
   const table = (rows) => `<div class="adm-scroll"><table class="adm-table"><thead><tr><th>Person</th><th>Contact</th><th>Links and level</th><th>Review</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 
+  // Top 10 teams: average idea stars of the team's reviewed members, then presentation stars, then most reviewers.
+  function topTeams() {
+    const { groups, ev } = index();
+    const avg = (xs) => (xs.length ? xs.reduce((x, y) => x + y, 0) / xs.length : 0);
+    return groups.map(({ team, people }) => {
+      const ideas = people.map((p) => (ev.get(p.user_id) || {}).idea_rating).filter((n) => n > 0);
+      const pres = people.map((p) => (ev.get(p.user_id) || {}).presentation_rating).filter((n) => n > 0);
+      return { team, people, ideaAvg: avg(ideas), presAvg: avg(pres), raters: ideas.length };
+    }).filter((x) => x.raters)
+      .sort((a, b) => b.ideaAvg - a.ideaAvg || b.presAvg - a.presAvg || b.raters - a.raters || String(a.team.name).localeCompare(String(b.team.name)))
+      .slice(0, 10);
+  }
+  function topHtml() {
+    const top = topTeams();
+    const star = (n) => `<span class="adm-stars" title="${n.toFixed(1)} of 5">${"&#9733;".repeat(Math.round(n))}<span>${"&#9733;".repeat(5 - Math.round(n))}</span></span> <small>${n.toFixed(1)}</small>`;
+    if (!top.length) return '<p class="hk-note">Rate a few ideas below and the best teams will appear here.</p>';
+    return `<ol class="adm-top">${top.map((x, i) => {
+      const t = x.team, lead = x.people.find((p) => p.user_id === t.lead_id);
+      return `<li><span class="adm-rank">${i + 1}</span><div class="adm-top-body"><h4>${s(t.name)} <small>Code ${s(t.code)}</small></h4>
+        <p>${star(x.ideaAvg)} <small>idea, from ${x.raters} review${x.raters === 1 ? "" : "s"}</small>${x.presAvg ? ` &middot; ${star(x.presAvg)} <small>presentation</small>` : ""}</p>
+        ${t.submitted_at ? `<p><b>Idea:</b> ${s(t.idea)}</p>${isUrl(t.project_url) ? `<p><a href="${s(t.project_url)}" target="_blank" rel="noopener noreferrer">${s(t.project_url)}</a></p>` : ""}` : "<p><i>No project submitted yet.</i></p>"}
+        <small>${x.people.length} member${x.people.length === 1 ? "" : "s"}${lead ? `, lead ${s(lead.name)}` : ""}</small></div></li>`;
+    }).join("")}</ol>`;
+  }
+
   function draw() {
     const { groups, solo, ev } = index();
     const q = (document.getElementById("adm-q")?.value || "").trim().toLowerCase();
@@ -87,13 +112,15 @@
         <div><strong>${data.teams.filter((t) => t.submitted_at).length}</strong><span>Projects submitted</span></div>
         <div><strong>${done}</strong><span>Want to volunteer</span></div>
         <div><strong>${data.profiles.filter((x) => x.wants_startup === true).length}</strong><span>Want a startup</span></div></div>
+      <section class="adm-topbox" aria-labelledby="adm-top-h"><h3 id="adm-top-h">Top 10 teams</h3><p class="hk-note">Ranked by the average idea stars you give each team's members.</p><div id="adm-top">${topHtml()}</div></section>
       <div class="adm-tools"><label class="field adm-search">Search<input id="adm-q" type="search" placeholder="Name, college, team, email" value="${s(q)}"></label>
-        <button class="btn btn-sm btn-tonal" id="adm-refresh" type="button">Refresh</button><button class="btn btn-sm btn-tonal" id="adm-csv" type="button">Export CSV</button></div>
+        <button class="btn btn-sm btn-tonal" id="adm-refresh" type="button">Refresh</button><button class="btn btn-sm btn-tonal" id="adm-csv" type="button">Export people CSV</button><button class="btn btn-sm btn-tonal" id="adm-teams-csv" type="button">Download teams CSV</button></div>
       ${cards + soloCard || '<p class="hk-note">Nothing to show yet.</p>'}`;
     const qi = document.getElementById("adm-q");
     qi.addEventListener("input", () => { const pos = qi.selectionStart; draw(); const n = document.getElementById("adm-q"); n.focus(); n.setSelectionRange(pos, pos); });
     document.getElementById("adm-refresh").addEventListener("click", refresh);
     document.getElementById("adm-csv").addEventListener("click", exportCsv);
+    document.getElementById("adm-teams-csv").addEventListener("click", exportTeamsCsv);
     host.querySelectorAll("tr[data-uid]").forEach(paint);
   }
 
@@ -118,6 +145,8 @@
     if (error) return;
     const i = data.evals.findIndex((x) => x.user_id === row.user_id);
     if (i >= 0) data.evals[i] = { ...data.evals[i], ...row }; else data.evals.push(row);
+    const tb = document.getElementById("adm-top");
+    if (tb) tb.innerHTML = topHtml();
     setTimeout(() => { if (out.textContent === "Saved") out.textContent = ""; }, 1500);
   }
   host.addEventListener("change", (e) => { const tr = e.target.closest("tr[data-uid]"); if (tr && e.target.closest(".adm-eval, .adm-notes")) { paint(tr); save(tr); } });
@@ -129,6 +158,29 @@
     paint(tr);
     save(tr);
   });
+
+  const download = (rows, name) => {
+    const cell = (v) => { let t = String(v == null ? "" : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
+    const csv = rows.map((r) => r.map(cell).join(",")).join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv" }));
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  // One row per team: team details, members, and the submitted problem statement, idea and project URL.
+  function exportTeamsCsv() {
+    const { groups, ev } = index();
+    const avg = (xs) => (xs.length ? (xs.reduce((x, y) => x + y, 0) / xs.length).toFixed(1) : "");
+    const head = ["Team", "Team code", "Lead name", "Lead email", "Lead phone", "Members", "Member names", "Member emails", "Colleges", "Problem statement", "Idea", "Project URL", "Submitted at", "Average idea rating (1-5)", "Average presentation (1-5)"];
+    const rows = groups.map(({ team: t, people }) => {
+      const lead = people.find((p) => p.user_id === t.lead_id) || {};
+      const rated = (k) => people.map((p) => (ev.get(p.user_id) || {})[k]).filter((n) => n > 0);
+      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating"))];
+    });
+    download([head, ...rows], "gdg-vizag-teams.csv");
+  }
 
   function exportCsv() {
     const { groups, solo, ev } = index();
