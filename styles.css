@@ -1124,3 +1124,13 @@ body:not(.has-sfx) .sfx { display: none; }
 .adm-top-body { min-width: 0; overflow-wrap: anywhere; }
 .adm-top-body h4 { margin: 0 0 4px; }
 .adm-top-body p { margin: 4px 0; }
+
+/* Admin: event cards and the per-event bar */
+.adm-events { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; }
+.adm-event { display: grid; gap: 10px; align-content: start; padding: 22px; border-radius: 26px; background: var(--surface); }
+.adm-event h3 { margin: 0; }
+.adm-event p { margin: 0; }
+.adm-event .btn { justify-self: start; }
+.adm-event-stats { color: var(--on-2); }
+.adm-eventbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-bottom: 16px; }
+.adm-eventbar h3 { margin: 0; }

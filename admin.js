@@ -17,11 +17,39 @@
     const { data: ok, error } = await sb.rpc("is_admin");
     if (error) return notice(s(/function|schema cache/i.test(error.message) ? "Setup isn't finished. Run supabase/schema.sql in Supabase." : error.message), "error");
     if (ok !== true) return notice(`${s(me.email)} is not an admin account.`);
-    await refresh();
+    await home();
+  }
+
+  // Landing view: one card per event. Prompt to Product opens the dashboard below.
+  async function home() {
+    host.innerHTML = '<p class="hk-note">Loading...</p>';
+    const ok = await load();
+    if (!ok) return;
+    const submitted = data.teams.filter((t) => t.submitted_at).length;
+    host.innerHTML = `<div class="adm-events">
+      <article class="adm-event">
+        <span class="hk-tag">Completed</span>
+        <h3>Prompt to Product</h3>
+        <p class="sub">A 5-Day AI &amp; Developer Experience &middot; Ratan Tata Innovation Hub, Visakhapatnam</p>
+        <p class="adm-event-stats"><b>${data.profiles.length}</b> registered &middot; <b>${data.teams.length}</b> teams &middot; <b>${submitted}</b> projects submitted</p>
+        <button class="btn btn-sm" id="adm-open-p2p" type="button">Open dashboard</button>
+      </article>
+      <article class="adm-event">
+        <span class="hk-tag warn">Upcoming</span>
+        <h3>Local2Global Hack : GDGVIZAG</h3>
+        <p class="sub">5&ndash;6 November 2026 &middot; Gayatri Vidya Parishad College of Engineering, Visakhapatnam</p>
+        <p class="adm-event-stats">Registrations are collected on GDG Community, not on this site.</p>
+        <a class="btn btn-sm btn-tonal" href="https://gdg.community.dev/events/details/google-gdg-vizag-presents-local2global-hack-gdgvizag/" target="_blank" rel="noopener noreferrer">Open on GDG Community</a>
+      </article></div>`;
+    document.getElementById("adm-open-p2p").addEventListener("click", draw);
   }
 
   async function refresh() {
     host.innerHTML = '<p class="hk-note">Loading...</p>';
+    if (await load()) draw();
+  }
+
+  async function load() {
     const [t, m, p, e] = await Promise.all([
       sb.from("teams").select("*").order("created_at"),
       sb.from("team_members").select("user_id, team_id, joined_at").order("joined_at"),
@@ -29,9 +57,9 @@
       sb.from("evaluations").select("*"),
     ]);
     const bad = [t, m, p, e].find((r) => r.error);
-    if (bad) return notice(s(bad.error.message), "error");
+    if (bad) { notice(s(bad.error.message), "error"); return false; }
     data = { teams: t.data, members: m.data, profiles: p.data, evals: e.data };
-    draw();
+    return true;
   }
 
   const index = () => {
@@ -106,7 +134,8 @@
     const soloShown = solo.filter((p) => match(p, null));
     const soloCard = soloShown.length ? `<article class="adm-team"><header><div><h3>Not in a team</h3><small>Registered, no team yet</small></div><span class="hk-tag warn">${solo.length}</span></header>${table(soloShown.map((p) => person(p, false, ev)).join(""))}</article>` : "";
     const done = data.evals.filter((x) => x.volunteer_interest).length;
-    host.innerHTML = `<div class="adm-stats">
+    host.innerHTML = `<div class="adm-eventbar"><button class="btn btn-sm btn-tonal" id="adm-back" type="button">&larr; All events</button><h3>Prompt to Product <span class="hk-tag">Completed</span></h3></div>
+      <div class="adm-stats">
         <div><strong>${data.profiles.length}</strong><span>Registered</span></div>
         <div><strong>${data.teams.length}</strong><span>Teams</span></div>
         <div><strong>${data.teams.filter((t) => t.submitted_at).length}</strong><span>Projects submitted</span></div>
@@ -118,6 +147,7 @@
       ${cards + soloCard || '<p class="hk-note">Nothing to show yet.</p>'}`;
     const qi = document.getElementById("adm-q");
     qi.addEventListener("input", () => { const pos = qi.selectionStart; draw(); const n = document.getElementById("adm-q"); n.focus(); n.setSelectionRange(pos, pos); });
+    document.getElementById("adm-back").addEventListener("click", home);
     document.getElementById("adm-refresh").addEventListener("click", refresh);
     document.getElementById("adm-csv").addEventListener("click", exportCsv);
     document.getElementById("adm-teams-csv").addEventListener("click", exportTeamsCsv);
