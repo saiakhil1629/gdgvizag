@@ -1,6 +1,6 @@
--- GDG Vizag: event registration, teams and admin review.
+-- GDG Vizag: event registration, teams and admin review (Prompt to Product + Local2Global).
 -- Run this once in Supabase: SQL Editor > New query > paste > Run.
--- Safe to re-run: tables use "if not exists" and functions/policies are replaced.
+-- Safe to re-run: tables use "if not exists", columns are added only if missing, and functions/policies are replaced.
 
 -- ---------------------------------------------------------------- tables
 create table if not exists public.profiles (
@@ -30,6 +30,23 @@ alter table public.profiles drop constraint if exists profiles_coding_level_chec
 alter table public.profiles add constraint profiles_coding_level_check
   check (coding_level is null or coding_level between 0 and 5);
 
+-- Events. Edit this table (Table Editor) to change a deadline or an event's college rule.
+--   submissions_close : the lead can no longer submit or update the project after this moment (null = never closes)
+--   college_pattern   : people whose college does not match this regex cannot register (null = open to everyone)
+--   needs_demo        : the submission must include a demo link
+create table if not exists public.events (
+  key text primary key,
+  name text not null,
+  submissions_close timestamptz,
+  college_pattern text,
+  college_label text,
+  needs_demo boolean not null default false
+);
+insert into public.events (key, name, submissions_close, college_pattern, college_label, needs_demo) values
+  ('p2p', 'Prompt to Product', null, null, null, false),
+  ('l2g', 'Local2Global Hack', '2026-11-06 09:00:00+05:30', 'gayatri|gvp', 'Gayatri Vidya Parishad (GVP)', true)
+on conflict (key) do nothing;
+
 create table if not exists public.teams (
   id uuid primary key default gen_random_uuid(),
   code text not null unique,
@@ -41,14 +58,37 @@ create table if not exists public.teams (
   submitted_at timestamptz,
   created_at timestamptz not null default now()
 );
+-- Added later: which event the team belongs to, and a demo link. Existing teams belong to Prompt to Product.
+alter table public.teams add column if not exists event text not null default 'p2p' references public.events (key);
+alter table public.teams add column if not exists demo_url text;
+alter table public.teams drop constraint if exists teams_demo_url_check;
+alter table public.teams add constraint teams_demo_url_check
+  check (demo_url is null or (demo_url ~* '^https?://' and char_length(demo_url) <= 500));
 
--- One row per person, so nobody can be in two teams.
+-- One row per person per event, so nobody can be in two teams of the same event.
 create table if not exists public.team_members (
-  user_id uuid primary key references public.profiles (user_id) on delete cascade,
+  user_id uuid not null references public.profiles (user_id) on delete cascade,
   team_id uuid not null references public.teams (id) on delete cascade,
   joined_at timestamptz not null default now()
 );
+alter table public.team_members add column if not exists event text not null default 'p2p' references public.events (key);
+update public.team_members tm set event = t.event from public.teams t where t.id = tm.team_id and tm.event is distinct from t.event;
+alter table public.team_members drop constraint if exists team_members_pkey;
+alter table public.team_members add primary key (user_id, event);
 create index if not exists team_members_team_idx on public.team_members (team_id);
+
+-- Who registered for which event (saving details inside an event's form registers you for it).
+create table if not exists public.registrations (
+  user_id uuid not null references public.profiles (user_id) on delete cascade,
+  event text not null references public.events (key),
+  created_at timestamptz not null default now(),
+  primary key (user_id, event)
+);
+-- Everyone who registered before events existed was registering for Prompt to Product.
+insert into public.registrations (user_id, event)
+  select p.user_id, 'p2p' from public.profiles p
+  where not exists (select 1 from public.registrations r where r.user_id = p.user_id)
+on conflict do nothing;
 
 -- Admins are identified by their (confirmed) login email.
 create table if not exists public.admins (
@@ -74,11 +114,19 @@ alter table public.evaluations drop constraint if exists evaluations_idea_rating
 alter table public.evaluations add constraint evaluations_idea_rating_check check (idea_rating is null or idea_rating between 1 and 5);
 alter table public.evaluations drop constraint if exists evaluations_presentation_rating_check;
 alter table public.evaluations add constraint evaluations_presentation_rating_check check (presentation_rating is null or presentation_rating between 1 and 5);
+-- Reviews are per event now (one row per person per event).
+alter table public.evaluations add column if not exists event text not null default 'p2p' references public.events (key);
+alter table public.evaluations drop constraint if exists evaluations_pkey;
+alter table public.evaluations add primary key (user_id, event);
 
 -- Add admins here. Add more rows any time.
 insert into public.admins (email) values ('saiakhil1629@gmail.com'), ('karanamkarthik2004@gmail.com') on conflict do nothing;
 
 -- ---------------------------------------------------------------- helpers
+-- (Older versions of these helpers are dropped first; the teams policy that used my_team_id() is dropped before it.)
+drop policy if exists teams_select on public.teams;
+drop function if exists public.my_team_id();
+
 create or replace function public.is_admin() returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (
@@ -87,7 +135,8 @@ language sql stable security definer set search_path = public as $$
   );
 $$;
 
-create or replace function public.my_team_id() returns uuid
+-- Every team the signed-in person belongs to (one per event at most).
+create or replace function public.my_team_ids() returns setof uuid
 language sql stable security definer set search_path = public as $$
   select team_id from public.team_members where user_id = auth.uid();
 $$;
@@ -98,6 +147,8 @@ alter table public.teams enable row level security;
 alter table public.team_members enable row level security;
 alter table public.admins enable row level security;
 alter table public.evaluations enable row level security;
+alter table public.events enable row level security;
+alter table public.registrations enable row level security;
 
 -- profiles: you see and edit your own; admins see all. (Teammates only see names via my_team_roster.)
 drop policy if exists profiles_select on public.profiles;
@@ -110,10 +161,18 @@ drop policy if exists profiles_update on public.profiles;
 create policy profiles_update on public.profiles for update to authenticated
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
+-- events: anyone signed in can read the list (deadlines are not secret).
+drop policy if exists events_select on public.events;
+create policy events_select on public.events for select to authenticated using (true);
+
+-- registrations: read your own (admins read all). Rows are only created by register_for_event / create_team / join_team.
+drop policy if exists registrations_select on public.registrations;
+create policy registrations_select on public.registrations for select to authenticated
+  using (user_id = auth.uid() or public.is_admin());
+
 -- teams and team_members: read-only from the browser. All changes go through the functions below.
-drop policy if exists teams_select on public.teams;
 create policy teams_select on public.teams for select to authenticated
-  using (id = public.my_team_id() or public.is_admin());
+  using (id in (select public.my_team_ids()) or public.is_admin());
 drop policy if exists team_members_select on public.team_members;
 create policy team_members_select on public.team_members for select to authenticated
   using (user_id = auth.uid() or public.is_admin());
@@ -125,8 +184,38 @@ drop policy if exists evaluations_all on public.evaluations;
 create policy evaluations_all on public.evaluations for all to authenticated
   using (public.is_admin()) with check (public.is_admin());
 
--- ---------------------------------------------------------------- team actions
-create or replace function public.create_team(p_name text) returns public.teams
+-- ---------------------------------------------------------------- registration and team actions
+-- Old function versions have different arguments; drop them so the new ones are the only ones.
+drop function if exists public.create_team(text);
+drop function if exists public.submit_project(text, text, text);
+drop function if exists public.leave_team();
+drop function if exists public.my_team_roster();
+
+-- Internal: checks the event exists and the person's college is allowed, then records the registration.
+create or replace function public.ensure_registered(uid uuid, ev text) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  e public.events;
+  c text;
+begin
+  select * into e from events where key = ev;
+  if not found then raise exception 'That event does not exist.'; end if;
+  select college into c from profiles where user_id = uid;
+  if c is null then raise exception 'Save your details first.'; end if;
+  if e.college_pattern is not null and c !~* e.college_pattern then
+    raise exception '% is for % students only. Check the college in your details.', e.name, coalesce(e.college_label, 'selected college');
+  end if;
+  insert into registrations (user_id, event) values (uid, ev) on conflict do nothing;
+end $$;
+
+create or replace function public.register_for_event(p_event text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'Please log in first.'; end if;
+  perform ensure_registered(auth.uid(), p_event);
+end $$;
+
+create or replace function public.create_team(p_name text, p_event text default 'p2p') returns public.teams
 language plpgsql security definer set search_path = public as $$
 declare
   uid uuid := auth.uid();
@@ -135,15 +224,16 @@ declare
 begin
   if uid is null then raise exception 'Please log in first.'; end if;
   if not exists (select 1 from profiles where user_id = uid) then raise exception 'Save your details first.'; end if;
-  if exists (select 1 from team_members where user_id = uid) then raise exception 'You are already in a team.'; end if;
+  perform ensure_registered(uid, p_event);
+  if exists (select 1 from team_members where user_id = uid and event = p_event) then raise exception 'You are already in a team.'; end if;
   p_name := btrim(coalesce(p_name, ''));
   if char_length(p_name) < 2 or char_length(p_name) > 60 then raise exception 'Enter a team name (2 to 60 characters).'; end if;
   loop
     c := 'GDG-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 6));
     exit when not exists (select 1 from teams where code = c);
   end loop;
-  insert into teams (code, name, lead_id) values (c, p_name, uid) returning * into t;
-  insert into team_members (user_id, team_id) values (uid, t.id);
+  insert into teams (code, name, lead_id, event) values (c, p_name, uid, p_event) returning * into t;
+  insert into team_members (user_id, team_id, event) values (uid, t.id, p_event);
   return t;
 end $$;
 
@@ -156,38 +246,45 @@ declare
 begin
   if uid is null then raise exception 'Please log in first.'; end if;
   if not exists (select 1 from profiles where user_id = uid) then raise exception 'Save your details first.'; end if;
-  if exists (select 1 from team_members where user_id = uid) then raise exception 'You are already in a team.'; end if;
   select * into t from teams where code = upper(btrim(coalesce(p_code, ''))) for update;
   if not found then raise exception 'That team code was not found. Check it with your team lead.'; end if;
+  perform ensure_registered(uid, t.event);
+  if exists (select 1 from team_members where user_id = uid and event = t.event) then raise exception 'You are already in a team.'; end if;
   select count(*) into n from team_members where team_id = t.id;
   if n >= 6 then raise exception 'This team is full (6 members).'; end if;
-  insert into team_members (user_id, team_id) values (uid, t.id);
+  insert into team_members (user_id, team_id, event) values (uid, t.id, t.event);
   return t;
 end $$;
 
-create or replace function public.submit_project(p_problem text, p_idea text, p_url text) returns public.teams
+create or replace function public.submit_project(p_problem text, p_idea text, p_url text, p_event text default 'p2p', p_demo text default null) returns public.teams
 language plpgsql security definer set search_path = public as $$
 declare
   uid uuid := auth.uid();
   t public.teams;
-  n int;
+  e public.events;
 begin
-  select * into t from teams where lead_id = uid for update;
+  select * into t from teams where lead_id = uid and event = p_event for update;
   if not found then raise exception 'Only the team lead can submit the project.'; end if;
-  select count(*) into n from team_members where team_id = t.id;
+  select * into e from events where key = p_event;
+  if e.submissions_close is not null and now() > e.submissions_close then
+    raise exception 'Submissions for % are closed.', e.name;
+  end if;
   p_problem := btrim(coalesce(p_problem, ''));
   p_idea := btrim(coalesce(p_idea, ''));
   p_url := btrim(coalesce(p_url, ''));
+  p_demo := btrim(coalesce(p_demo, ''));
   if char_length(p_problem) < 10 then raise exception 'Describe the problem statement (at least 10 characters).'; end if;
   if char_length(p_idea) < 10 then raise exception 'Describe your idea (at least 10 characters).'; end if;
   if p_url !~* '^https?://' then raise exception 'The project URL must start with http:// or https://'; end if;
+  if e.needs_demo and p_demo = '' then raise exception 'Add a demo link (a video or a live demo).'; end if;
+  if p_demo <> '' and p_demo !~* '^https?://' then raise exception 'The demo link must start with http:// or https://'; end if;
   update teams set problem_statement = p_problem, idea = p_idea, project_url = p_url,
-         submitted_at = coalesce(submitted_at, now())
+         demo_url = nullif(p_demo, ''), submitted_at = coalesce(submitted_at, now())
    where id = t.id returning * into t;
   return t;
 end $$;
 
-create or replace function public.leave_team() returns void
+create or replace function public.leave_team(p_event text default 'p2p') returns void
 language plpgsql security definer set search_path = public as $$
 declare
   uid uuid := auth.uid();
@@ -195,7 +292,7 @@ declare
   tid uuid;
   n int;
 begin
-  select tm.team_id into tid from team_members tm where tm.user_id = uid;
+  select tm.team_id into tid from team_members tm where tm.user_id = uid and tm.event = p_event;
   if tid is null then return; end if;
   select * into t from teams where id = tid for update;
   select count(*) into n from team_members where team_id = t.id;
@@ -203,19 +300,19 @@ begin
     if n > 1 then raise exception 'You are the team lead. Other members are still in the team.'; end if;
     delete from teams where id = t.id; -- also removes the lead's membership
   else
-    delete from team_members where user_id = uid;
+    delete from team_members where user_id = uid and event = p_event;
   end if;
 end $$;
 
 -- Names only: what teammates may see about each other.
-create or replace function public.my_team_roster()
+create or replace function public.my_team_roster(p_event text default 'p2p')
 returns table (name text, college text, is_lead boolean, is_me boolean)
 language sql stable security definer set search_path = public as $$
   select p.name, p.college, (t.lead_id = tm.user_id), (tm.user_id = auth.uid())
   from team_members tm
   join teams t on t.id = tm.team_id
   join profiles p on p.user_id = tm.user_id
-  where tm.team_id = (select team_id from team_members where user_id = auth.uid())
+  where tm.team_id = (select team_id from team_members where user_id = auth.uid() and event = p_event)
   order by (t.lead_id = tm.user_id) desc, tm.joined_at;
 $$;
 
@@ -223,9 +320,10 @@ $$;
 revoke all on all tables in schema public from anon;
 revoke execute on all functions in schema public from public, anon;
 grant select, insert, update on public.profiles to authenticated;
-grant select on public.teams, public.team_members to authenticated;
+grant select on public.teams, public.team_members, public.events, public.registrations to authenticated;
 grant select, insert, update, delete on public.evaluations to authenticated;
 grant execute on function
-  public.is_admin(), public.my_team_id(), public.create_team(text), public.join_team(text),
-  public.submit_project(text, text, text), public.leave_team(), public.my_team_roster()
+  public.is_admin(), public.my_team_ids(), public.register_for_event(text),
+  public.create_team(text, text), public.join_team(text),
+  public.submit_project(text, text, text, text, text), public.leave_team(text), public.my_team_roster(text)
   to authenticated;

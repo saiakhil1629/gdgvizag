@@ -7,6 +7,13 @@
   const link = (u) => (isUrl(u) ? `<a href="${s(u)}" target="_blank" rel="noopener noreferrer">Open</a>` : "");
   const notice = (html, kind = "warn") => { host.innerHTML = `<p class="auth-msg is-${kind}">${html}</p>`; };
   const MIN = 1;
+  // One entry per event. Each has its own teams, registrations and reviews in the database (matched on "event").
+  const EVENTS = {
+    p2p: { name: "Prompt to Product", sub: "A 5-Day AI &amp; Developer Experience &middot; Ratan Tata Innovation Hub, Visakhapatnam", badge: "Completed", warn: false },
+    l2g: { name: "Local2Global Hack : GDGVIZAG", sub: "5&ndash;6 November 2026 &middot; Gayatri Vidya Parishad College of Engineering, Visakhapatnam", badge: "Upcoming", warn: true },
+  };
+  let cur = "p2p"; // the event whose dashboard is open
+  const demoLine = (t) => (isUrl(t.demo_url) ? `<p><b>Demo:</b> <a href="${s(t.demo_url)}" target="_blank" rel="noopener noreferrer">${s(t.demo_url)}</a></p>` : "");
   let me, data = { teams: [], members: [], profiles: [], evals: [] };
 
   async function boot() {
@@ -20,28 +27,24 @@
     await home();
   }
 
-  // Landing view: one card per event. Prompt to Product opens the dashboard below.
+  // Landing view: one card per event. Each opens that event's dashboard.
   async function home() {
     host.innerHTML = '<p class="hk-note">Loading...</p>';
-    const ok = await load();
-    if (!ok) return;
-    const submitted = data.teams.filter((t) => t.submitted_at).length;
-    host.innerHTML = `<div class="adm-events">
-      <article class="adm-event">
-        <span class="hk-tag">Completed</span>
-        <h3>Prompt to Product</h3>
-        <p class="sub">A 5-Day AI &amp; Developer Experience &middot; Ratan Tata Innovation Hub, Visakhapatnam</p>
-        <p class="adm-event-stats"><b>${data.profiles.length}</b> registered &middot; <b>${data.teams.length}</b> teams &middot; <b>${submitted}</b> projects submitted</p>
-        <button class="btn btn-sm" id="adm-open-p2p" type="button">Open dashboard</button>
-      </article>
-      <article class="adm-event">
-        <span class="hk-tag warn">Upcoming</span>
-        <h3>Local2Global Hack : GDGVIZAG</h3>
-        <p class="sub">5&ndash;6 November 2026 &middot; Gayatri Vidya Parishad College of Engineering, Visakhapatnam</p>
-        <p class="adm-event-stats">Registrations are collected on GDG Community, not on this site.</p>
-        <a class="btn btn-sm btn-tonal" href="https://gdg.community.dev/events/details/google-gdg-vizag-presents-local2global-hack-gdgvizag/" target="_blank" rel="noopener noreferrer">Open on GDG Community</a>
-      </article></div>`;
-    document.getElementById("adm-open-p2p").addEventListener("click", draw);
+    const [r, t] = await Promise.all([sb.from("registrations").select("event"), sb.from("teams").select("event, submitted_at")]);
+    const bad = [r, t].find((x) => x.error);
+    if (bad) return notice(s(/function|schema cache|does not exist/i.test(bad.error.message) ? "Setup isn't finished. Run supabase/schema.sql in Supabase." : bad.error.message), "error");
+    host.innerHTML = `<div class="adm-events">${Object.entries(EVENTS).map(([key, e]) => {
+      const reg = r.data.filter((x) => x.event === key).length;
+      const teams = t.data.filter((x) => x.event === key);
+      return `<article class="adm-event">
+        <span class="hk-tag${e.warn ? " warn" : ""}">${e.badge}</span>
+        <h3>${e.name}</h3>
+        <p class="sub">${e.sub}</p>
+        <p class="adm-event-stats"><b>${reg}</b> registered &middot; <b>${teams.length}</b> teams &middot; <b>${teams.filter((x) => x.submitted_at).length}</b> projects submitted</p>
+        <button class="btn btn-sm" data-ev="${key}" type="button">Open dashboard</button>
+      </article>`;
+    }).join("")}</div>`;
+    host.querySelectorAll("button[data-ev]").forEach((b) => b.addEventListener("click", () => { cur = b.dataset.ev; refresh(); }));
   }
 
   async function refresh() {
@@ -50,15 +53,17 @@
   }
 
   async function load() {
-    const [t, m, p, e] = await Promise.all([
-      sb.from("teams").select("*").order("created_at"),
-      sb.from("team_members").select("user_id, team_id, joined_at").order("joined_at"),
+    const [t, m, r, p, e] = await Promise.all([
+      sb.from("teams").select("*").eq("event", cur).order("created_at"),
+      sb.from("team_members").select("user_id, team_id, joined_at").eq("event", cur).order("joined_at"),
+      sb.from("registrations").select("user_id").eq("event", cur),
       sb.from("profiles").select("*").order("created_at"),
-      sb.from("evaluations").select("*"),
+      sb.from("evaluations").select("*").eq("event", cur),
     ]);
-    const bad = [t, m, p, e].find((r) => r.error);
+    const bad = [t, m, r, p, e].find((x) => x.error);
     if (bad) { notice(s(bad.error.message), "error"); return false; }
-    data = { teams: t.data, members: m.data, profiles: p.data, evals: e.data };
+    const registered = new Set(r.data.map((x) => x.user_id));
+    data = { teams: t.data, members: m.data, profiles: p.data.filter((x) => registered.has(x.user_id)), evals: e.data };
     return true;
   }
 
@@ -110,7 +115,7 @@
       const t = x.team, lead = x.people.find((p) => p.user_id === t.lead_id);
       return `<li><span class="adm-rank">${i + 1}</span><div class="adm-top-body"><h4>${s(t.name)} <small>Code ${s(t.code)}</small></h4>
         <p>${star(x.ideaAvg)} <small>idea, from ${x.raters} review${x.raters === 1 ? "" : "s"}</small>${x.presAvg ? ` &middot; ${star(x.presAvg)} <small>presentation</small>` : ""}</p>
-        ${t.submitted_at ? `<p><b>Idea:</b> ${s(t.idea)}</p>${isUrl(t.project_url) ? `<p><a href="${s(t.project_url)}" target="_blank" rel="noopener noreferrer">${s(t.project_url)}</a></p>` : ""}` : "<p><i>No project submitted yet.</i></p>"}
+        ${t.submitted_at ? `<p><b>Idea:</b> ${s(t.idea)}</p>${isUrl(t.project_url) ? `<p><a href="${s(t.project_url)}" target="_blank" rel="noopener noreferrer">${s(t.project_url)}</a></p>` : ""}${demoLine(t)}` : "<p><i>No project submitted yet.</i></p>"}
         <small>${x.people.length} member${x.people.length === 1 ? "" : "s"}${lead ? `, lead ${s(lead.name)}` : ""}</small></div></li>`;
     }).join("")}</ol>`;
   }
@@ -127,14 +132,14 @@
         <header><div><h3>${s(t.name)}</h3><small>Code ${s(t.code)}</small></div>
           <span class="hk-tag ${full ? "" : "warn"}">${people.length} member${people.length === 1 ? "" : "s"}${full ? "" : ``}</span></header>
         <div class="adm-proj">${t.submitted_at
-          ? `<p><b>Problem:</b> ${s(t.problem_statement)}</p><p><b>Idea:</b> ${s(t.idea)}</p><p><b>Project:</b> ${isUrl(t.project_url) ? `<a href="${s(t.project_url)}" target="_blank" rel="noopener noreferrer">${s(t.project_url)}</a>` : "-"}</p>`
+          ? `<p><b>Problem:</b> ${s(t.problem_statement)}</p><p><b>Idea:</b> ${s(t.idea)}</p><p><b>Project:</b> ${isUrl(t.project_url) ? `<a href="${s(t.project_url)}" target="_blank" rel="noopener noreferrer">${s(t.project_url)}</a>` : "-"}</p>${demoLine(t)}`
           : "<p><i>No project submitted yet.</i></p>"}</div>
         ${table(shown.map((p) => person(p, p.user_id === t.lead_id, ev)).join(""))}</article>`;
     }).join("");
     const soloShown = solo.filter((p) => match(p, null));
     const soloCard = soloShown.length ? `<article class="adm-team"><header><div><h3>Not in a team</h3><small>Registered, no team yet</small></div><span class="hk-tag warn">${solo.length}</span></header>${table(soloShown.map((p) => person(p, false, ev)).join(""))}</article>` : "";
     const done = data.evals.filter((x) => x.volunteer_interest).length;
-    host.innerHTML = `<div class="adm-eventbar"><button class="btn btn-sm btn-tonal" id="adm-back" type="button">&larr; All events</button><h3>Prompt to Product <span class="hk-tag">Completed</span></h3></div>
+    host.innerHTML = `<div class="adm-eventbar"><button class="btn btn-sm btn-tonal" id="adm-back" type="button">&larr; All events</button><h3>${EVENTS[cur].name} <span class="hk-tag${EVENTS[cur].warn ? " warn" : ""}">${EVENTS[cur].badge}</span></h3></div>
       <div class="adm-stats">
         <div><strong>${data.profiles.length}</strong><span>Registered</span></div>
         <div><strong>${data.teams.length}</strong><span>Teams</span></div>
@@ -166,11 +171,11 @@
 
   async function save(tr) {
     const out = tr.querySelector(".adm-saved");
-    const row = { user_id: tr.dataset.uid, notes: tr.querySelector(".adm-notes").value.trim() || null, updated_by: me.id, updated_at: new Date().toISOString() };
+    const row = { user_id: tr.dataset.uid, event: cur, notes: tr.querySelector(".adm-notes").value.trim() || null, updated_by: me.id, updated_at: new Date().toISOString() };
     tr.querySelectorAll(".adm-rate").forEach((g) => { const c = g.querySelector("input:checked"); row[g.dataset.k] = c ? +c.value : null; });
     row.volunteer_interest = tr.querySelector('input[data-k="volunteer_interest"]').checked;
     out.textContent = "Saving...";
-    const { error } = await sb.from("evaluations").upsert(row, { onConflict: "user_id" });
+    const { error } = await sb.from("evaluations").upsert(row, { onConflict: "user_id,event" });
     out.textContent = error ? "Not saved" : "Saved";
     if (error) return;
     const i = data.evals.findIndex((x) => x.user_id === row.user_id);
@@ -203,27 +208,27 @@
   function exportTeamsCsv() {
     const { groups, ev } = index();
     const avg = (xs) => (xs.length ? (xs.reduce((x, y) => x + y, 0) / xs.length).toFixed(1) : "");
-    const head = ["Team", "Team code", "Lead name", "Lead email", "Lead phone", "Members", "Member names", "Member emails", "Colleges", "Problem statement", "Idea", "Project URL", "Submitted at", "Average idea rating (1-5)", "Average presentation (1-5)"];
+    const head = ["Team", "Team code", "Lead name", "Lead email", "Lead phone", "Members", "Member names", "Member emails", "Colleges", "Problem statement", "Idea", "Project URL", "Demo URL", "Submitted at", "Average idea rating (1-5)", "Average presentation (1-5)"];
     const rows = groups.map(({ team: t, people }) => {
       const lead = people.find((p) => p.user_id === t.lead_id) || {};
       const rated = (k) => people.map((p) => (ev.get(p.user_id) || {})[k]).filter((n) => n > 0);
-      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating"))];
+      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.demo_url, t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating"))];
     });
-    download([head, ...rows], "gdg-vizag-teams.csv");
+    download([head, ...rows], `gdg-vizag-${cur}-teams.csv`);
   }
 
   function exportCsv() {
     const { groups, solo, ev } = index();
     const cell = (v) => { let t = String(v == null ? "" : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
-    const head = ["Team", "Team code", "Role", "Name", "College", "Phone", "Email", "GitHub", "LinkedIn", "Coding level (0-5)", "Wants to build a startup", "Best project", "Team problem", "Team idea", "Team project URL", "Idea rating (1-5)", "Presentation skills (1-5)", "Volunteering interest", "Notes"];
+    const head = ["Team", "Team code", "Role", "Name", "College", "Phone", "Email", "GitHub", "LinkedIn", "Coding level (0-5)", "Wants to build a startup", "Best project", "Team problem", "Team idea", "Team project URL", "Team demo URL", "Idea rating (1-5)", "Presentation skills (1-5)", "Volunteering interest", "Notes"];
     const rows = [];
-    const add = (t, p, lead) => { const e = ev.get(p.user_id) || {}; rows.push([t ? t.name : "(no team)", t ? t.code : "", t ? (lead ? "Lead" : "Member") : "", p.name, p.college, p.phone, p.email, p.github_url, p.linkedin_url, p.coding_level, p.wants_startup === true ? "Yes" : p.wants_startup === false ? "No" : "", p.best_project_url, t ? t.problem_statement : "", t ? t.idea : "", t ? t.project_url : "", e.idea_rating || "", e.presentation_rating || "", e.volunteer_interest ? "Yes" : "", e.notes || ""]); };
+    const add = (t, p, lead) => { const e = ev.get(p.user_id) || {}; rows.push([t ? t.name : "(no team)", t ? t.code : "", t ? (lead ? "Lead" : "Member") : "", p.name, p.college, p.phone, p.email, p.github_url, p.linkedin_url, p.coding_level, p.wants_startup === true ? "Yes" : p.wants_startup === false ? "No" : "", p.best_project_url, t ? t.problem_statement : "", t ? t.idea : "", t ? t.project_url : "", t ? t.demo_url : "", e.idea_rating || "", e.presentation_rating || "", e.volunteer_interest ? "Yes" : "", e.notes || ""]); };
     groups.forEach(({ team: t, people }) => people.forEach((p) => add(t, p, p.user_id === t.lead_id)));
     solo.forEach((p) => add(null, p, false));
     const csv = [head, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
-    a.download = "gdg-vizag-registrations.csv";
+    a.download = `gdg-vizag-${cur}-registrations.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
