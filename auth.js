@@ -25,6 +25,11 @@
   const db = window.supabase.createClient(SUPABASE.url, SUPABASE.anonKey);
   const redirectTo = new URL(HOME, location.href).href;
 
+  // Admins always land on the admin dashboard; everyone else goes to where they were headed.
+  const landing = async () => {
+    try { const { data } = await db.rpc("is_admin"); return data === true ? "admin.html" : HOME; } catch { return HOME; }
+  };
+
   // Already signed in? Skip the form.
   db.auth.getSession().then(({ data }) => {
     if (!data.session) return;
@@ -35,6 +40,7 @@
     note.querySelector(".auth-msg").textContent = `You're already logged in as ${data.session.user.email}.`;
     note.querySelector("button").addEventListener("click", async () => { await db.auth.signOut(); location.reload(); });
     form.after(note);
+    landing().then((to) => { note.querySelector("a.btn").href = to; if (to === "admin.html") note.querySelector("a.btn").textContent = "Open admin dashboard"; });
     const alt = document.querySelector(".auth-alt");
     if (alt) alt.hidden = true;
   });
@@ -73,13 +79,13 @@
         if (error) throw error;
         // Supabase hides duplicate emails by returning a user with no identities.
         if (data.user && data.user.identities && !data.user.identities.length) throw new Error("already registered");
-        if (data.session) { location.replace(HOME); return; }
+        if (data.session) { location.replace(await landing()); return; }
         form.reset();
         say("Almost there. We sent a confirmation link to your email. Open it to finish creating your account.", "ok");
       } else {
         const { error } = await db.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        location.replace(HOME);
+        location.replace(await landing());
         return;
       }
     } catch (err) {
