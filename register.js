@@ -2,7 +2,7 @@
 // One flow serves every event listed in EVENTS below. Event rules (deadline, college check, demo link) come from the
 // "events" table in Supabase, so they can be changed without touching this file.
 (() => {
-  const MIN = 1, MAX = 6;
+  const MIN = 1;
   const s = (v) => esc(String(v == null ? "" : v));
   const isUrl = (u) => /^https?:\/\//i.test(u || "");
   const IST = { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" };
@@ -49,6 +49,7 @@
     };
     const busy = (btn, on, label) => { btn.disabled = on; if (label) btn.textContent = on ? "Please wait..." : label; };
     const rule = () => state.cfg || {};
+    const maxTeam = () => rule().max_team || 6;
     const eventName = () => rule().name || "this event";
     const closes = () => (rule().submissions_close ? new Date(rule().submissions_close) : null);
     const isClosed = () => !!closes() && Date.now() > closes().getTime();
@@ -178,7 +179,7 @@
       const lead = state.role === "lead", member = state.role === "member";
       panel.innerHTML = `<div class="hk-step">
         <p class="hk-stepno">Step 2 of 2</p><h3>Build your team</h3>
-        <p>Hi ${s(state.profile.name)}. Teams can have up to ${MAX} members. Pick your role.</p>
+        <p>Hi ${s(state.profile.name)}. Teams can have ${rule().confirm_team ? `1 to ${maxTeam()}` : `up to ${maxTeam()}`} members. Pick your role.</p>
         <div class="hk-roles" role="group" aria-label="Your role">
           <button type="button" class="hk-role${lead ? " on" : ""}" data-role="lead" aria-pressed="${lead}"><b>Team Lead</b><span>Create a team and get a code to share.</span></button>
           <button type="button" class="hk-role${member ? " on" : ""}" data-role="member" aria-pressed="${member}"><b>Team Member</b><span>Join a team with the code from your lead.</span></button>
@@ -213,14 +214,22 @@
       const ready = n >= MIN;
       const closed = isClosed();
       const needsDemo = !!rule().needs_demo;
-      const status = ready ? `${n} of ${MAX} members` : `${n} of ${MAX} members. You need at least ${MIN}.`;
+      const needsConfirm = !!rule().confirm_team;
+      const locked = !!t.locked_at;
+      const status = `${n} of ${maxTeam()} members`;
       const people = state.roster.map((m) => `<li><span class="hk-av">${s((m.name || "?").trim()[0] || "?")}</span><div><b>${s(m.name)}${m.is_me ? " (you)" : ""}</b><small>${s(m.college)}</small></div>${m.is_lead ? '<span class="hk-tag">Lead</span>' : ""}</li>`).join("");
       const submitted = !!t.submitted_at;
-      const off = ready && !closed ? "" : "disabled";
+      const off = ready && !closed && (!needsConfirm || locked) ? "" : "disabled";
+      const confirmBox = needsConfirm
+        ? (isLead
+          ? `<label class="hk-confirm"><input type="checkbox" id="hk-lock" ${locked ? "checked" : ""} ${closed ? "disabled" : ""}><span><b>My team is final</b> (${n} ${n === 1 ? "member" : "members"}). Tick this to lock the team: nobody can join or leave after that. Untick it if you still need to change the team.</span></label>`
+          : `<p class="hk-note">${locked ? "Your team lead has confirmed the team." : "Waiting for your team lead to confirm the team."}</p>`)
+        : "";
       const deadline = closes() ? `<p class="${closed ? "auth-msg is-warn" : "hk-note"}">${closed ? `Submissions closed on ${s(closesText())}.` : `Submissions close on <b>${s(closesText())}</b>.`}</p>` : "";
       const links = (x) => [["Project", x.project_url], ["Demo", x.demo_url]].filter(([, u]) => isUrl(u)).map(([l, u]) => `<p><b>${l}:</b> <a href="${s(u)}" target="_blank" rel="noopener noreferrer">${s(u)}</a></p>`).join("");
       const project = isLead
         ? `<form id="hk-project"><h4>Project submission</h4>${deadline}
+            ${needsConfirm && !locked ? '<p class="auth-msg is-warn">Tick "My team is final" above before you submit.</p>' : ""}
             ${ready ? "" : `<p class="auth-msg is-warn">Your team needs ${MIN - n} more ${MIN - n === 1 ? "member" : "members"} before you can submit. Share your team code.</p>`}
             <label class="field">Problem statement<textarea name="problem" rows="3" maxlength="2000" required ${off}>${s(t.problem_statement)}</textarea></label>
             <label class="field">Your idea<textarea name="idea" rows="4" maxlength="3000" required ${off}>${s(t.idea)}</textarea></label>
@@ -235,10 +244,11 @@
         <p class="hk-stepno">${isLead ? "You are the Team Lead" : "You are a Team Member"}</p>
         <h3>${s(t.name)}</h3>
         <div class="hk-code"><span>Team code</span><b id="hk-code">${s(t.code)}</b><button type="button" class="btn btn-sm btn-tonal" id="hk-copy">Copy</button></div>
-        <p class="hk-note">${s(status)}${submitted ? " · Project submitted" : ""}</p>
+        <p class="hk-note">${s(status)}${locked ? " · Team confirmed" : ""}${submitted ? " · Project submitted" : ""}</p>
         <ul class="hk-people">${people}</ul>
+        ${confirmBox}
         <div class="hk-project">${project}</div>
-        <div class="cta hk-actions"><button type="button" class="btn btn-sm btn-tonal" id="hk-refresh">Refresh team</button><button type="button" class="btn btn-sm btn-ghost" id="hk-edit">Edit my details</button><button type="button" class="btn btn-sm btn-ghost" id="hk-leave">Leave team</button></div>
+        <div class="cta hk-actions"><button type="button" class="btn btn-sm btn-tonal" id="hk-refresh">Refresh team</button><button type="button" class="btn btn-sm btn-ghost" id="hk-edit">Edit my details</button><button type="button" class="btn btn-sm btn-ghost" id="hk-leave" ${locked ? 'disabled title="Your team is confirmed"' : ""}>Leave team</button></div>
         ${isLead ? "" : '<p class="auth-msg hk-msg" role="status" aria-live="polite" hidden></p>'}
       </div>`;
       panel.querySelector("#hk-copy").addEventListener("click", async (e) => {
@@ -252,6 +262,13 @@
         const { error } = await sb.rpc("leave_team", { p_event: EVENT });
         if (error) return setMsg(friendly(error));
         load();
+      });
+      const lk = panel.querySelector("#hk-lock");
+      if (lk) lk.addEventListener("change", async () => {
+        lk.disabled = true;
+        const { error } = await sb.rpc("lock_team", { p_locked: lk.checked, p_event: EVENT });
+        await load();
+        if (error) setMsg(friendly(error));
       });
       const pf = panel.querySelector("#hk-project");
       if (pf) pf.addEventListener("submit", async (e) => {

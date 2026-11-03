@@ -10,7 +10,7 @@
   // One entry per event. Each has its own teams, registrations and reviews in the database (matched on "event").
   const EVENTS = {
     p2p: { name: "Prompt to Product", sub: "A 5-Day AI &amp; Developer Experience &middot; Ratan Tata Innovation Hub, Visakhapatnam", badge: "Completed", warn: false },
-    l2g: { name: "Local2Global Hack : GDGVIZAG", sub: "5&ndash;6 November 2026 &middot; Gayatri Vidya Parishad College of Engineering, Visakhapatnam", badge: "Upcoming", warn: true },
+    l2g: { name: "Local2Global Hack : GDGVIZAG", sub: "5&ndash;6 November 2026 &middot; Gayatri Vidya Parishad College of Engineering, Visakhapatnam", badge: "Upcoming", warn: true, confirm: true },
   };
   let cur = "p2p"; // the event whose dashboard is open
   const demoLine = (t) => (isUrl(t.demo_url) ? `<p><b>Demo:</b> <a href="${s(t.demo_url)}" target="_blank" rel="noopener noreferrer">${s(t.demo_url)}</a></p>` : "");
@@ -130,7 +130,7 @@
       const full = people.length >= MIN;
       return `<article class="adm-team">
         <header><div><h3>${s(t.name)}</h3><small>Code ${s(t.code)}</small></div>
-          <span class="hk-tag ${full ? "" : "warn"}">${people.length} member${people.length === 1 ? "" : "s"}${full ? "" : ``}</span></header>
+          <span class="hk-tag ${full ? "" : "warn"}">${people.length} member${people.length === 1 ? "" : "s"}${full ? "" : ``}</span>${t.locked_at ? '<span class="hk-tag">Team confirmed</span>' : EVENTS[cur].confirm ? '<span class="hk-tag warn">Not confirmed yet</span>' : ""}</header>
         <div class="adm-proj">${t.submitted_at
           ? `<p><b>Problem:</b> ${s(t.problem_statement)}</p><p><b>Idea:</b> ${s(t.idea)}</p><p><b>Project:</b> ${isUrl(t.project_url) ? `<a href="${s(t.project_url)}" target="_blank" rel="noopener noreferrer">${s(t.project_url)}</a>` : "-"}</p>${demoLine(t)}`
           : "<p><i>No project submitted yet.</i></p>"}</div>
@@ -208,11 +208,11 @@
   function exportTeamsCsv() {
     const { groups, ev } = index();
     const avg = (xs) => (xs.length ? (xs.reduce((x, y) => x + y, 0) / xs.length).toFixed(1) : "");
-    const head = ["Team", "Team code", "Lead name", "Lead email", "Lead phone", "Members", "Member names", "Member emails", "Colleges", "Problem statement", "Idea", "Project URL", "Demo URL", "Submitted at", "Average idea rating (1-5)", "Average presentation (1-5)"];
+    const head = ["Team", "Team code", "Lead name", "Lead email", "Lead phone", "Members", "Team confirmed", "Member names", "Member emails", "Colleges", "Problem statement", "Idea", "Project URL", "Demo URL", "Submitted at", "Average idea rating (1-5)", "Average presentation (1-5)"];
     const rows = groups.map(({ team: t, people }) => {
       const lead = people.find((p) => p.user_id === t.lead_id) || {};
       const rated = (k) => people.map((p) => (ev.get(p.user_id) || {})[k]).filter((n) => n > 0);
-      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.demo_url, t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating"))];
+      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, t.locked_at ? "Yes" : "No", people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.demo_url, t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating"))];
     });
     download([head, ...rows], `gdg-vizag-${cur}-teams.csv`);
   }

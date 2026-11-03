@@ -34,6 +34,8 @@ alter table public.profiles add constraint profiles_coding_level_check
 --   submissions_close : the lead can no longer submit or update the project after this moment (null = never closes)
 --   college_pattern   : people whose college does not match this regex cannot register (null = open to everyone)
 --   needs_demo        : the submission must include a demo link
+--   max_team          : most members a team may have (a team can be any size from 1 up to this)
+--   confirm_team      : the lead must tick "My team is final" (locks the team) before submitting
 create table if not exists public.events (
   key text primary key,
   name text not null,
@@ -42,10 +44,14 @@ create table if not exists public.events (
   college_label text,
   needs_demo boolean not null default false
 );
+alter table public.events add column if not exists max_team int not null default 6;
+alter table public.events add column if not exists confirm_team boolean not null default false;
 insert into public.events (key, name, submissions_close, college_pattern, college_label, needs_demo) values
   ('p2p', 'Prompt to Product', null, null, null, false),
   ('l2g', 'Local2Global Hack', '2026-11-06 09:00:00+05:30', 'gayatri|gvp', 'Gayatri Vidya Parishad (GVP)', true)
 on conflict (key) do nothing;
+-- Local2Global: teams of 1 to 5, confirmed by the lead. (Runs once; later edits in the Table Editor are kept.)
+update public.events set max_team = 5, confirm_team = true where key = 'l2g' and confirm_team = false;
 
 create table if not exists public.teams (
   id uuid primary key default gen_random_uuid(),
@@ -61,6 +67,8 @@ create table if not exists public.teams (
 -- Added later: which event the team belongs to, and a demo link. Existing teams belong to Prompt to Product.
 alter table public.teams add column if not exists event text not null default 'p2p' references public.events (key);
 alter table public.teams add column if not exists demo_url text;
+-- Set when the lead confirms the team is final. A confirmed team cannot gain or lose members.
+alter table public.teams add column if not exists locked_at timestamptz;
 alter table public.teams drop constraint if exists teams_demo_url_check;
 alter table public.teams add constraint teams_demo_url_check
   check (demo_url is null or (demo_url ~* '^https?://' and char_length(demo_url) <= 500));
@@ -242,6 +250,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   uid uuid := auth.uid();
   t public.teams;
+  e public.events;
   n int;
 begin
   if uid is null then raise exception 'Please log in first.'; end if;
@@ -250,8 +259,10 @@ begin
   if not found then raise exception 'That team code was not found. Check it with your team lead.'; end if;
   perform ensure_registered(uid, t.event);
   if exists (select 1 from team_members where user_id = uid and event = t.event) then raise exception 'You are already in a team.'; end if;
+  if t.locked_at is not null then raise exception 'This team has been confirmed by its lead and is not taking new members.'; end if;
+  select * into e from events where key = t.event;
   select count(*) into n from team_members where team_id = t.id;
-  if n >= 6 then raise exception 'This team is full (6 members).'; end if;
+  if n >= e.max_team then raise exception 'This team is full (% members).', e.max_team; end if;
   insert into team_members (user_id, team_id, event) values (uid, t.id, t.event);
   return t;
 end $$;
@@ -269,6 +280,9 @@ begin
   if e.submissions_close is not null and now() > e.submissions_close then
     raise exception 'Submissions for % are closed.', e.name;
   end if;
+  if e.confirm_team and t.locked_at is null then
+    raise exception 'Confirm your team first: tick "My team is final", then submit.';
+  end if;
   p_problem := btrim(coalesce(p_problem, ''));
   p_idea := btrim(coalesce(p_idea, ''));
   p_url := btrim(coalesce(p_url, ''));
@@ -284,6 +298,25 @@ begin
   return t;
 end $$;
 
+-- The lead confirms (locks) or unlocks the team. Locked teams cannot gain or lose members.
+create or replace function public.lock_team(p_locked boolean default true, p_event text default 'p2p') returns public.teams
+language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  t public.teams;
+  e public.events;
+begin
+  select * into t from teams where lead_id = uid and event = p_event for update;
+  if not found then raise exception 'Only the team lead can confirm the team.'; end if;
+  select * into e from events where key = p_event;
+  if e.submissions_close is not null and now() > e.submissions_close then
+    raise exception 'The deadline for % has passed, so the team can no longer be changed.', e.name;
+  end if;
+  update teams set locked_at = case when p_locked then coalesce(locked_at, now()) else null end
+   where id = t.id returning * into t;
+  return t;
+end $$;
+
 create or replace function public.leave_team(p_event text default 'p2p') returns void
 language plpgsql security definer set search_path = public as $$
 declare
@@ -295,6 +328,7 @@ begin
   select tm.team_id into tid from team_members tm where tm.user_id = uid and tm.event = p_event;
   if tid is null then return; end if;
   select * into t from teams where id = tid for update;
+  if t.locked_at is not null then raise exception 'Your team is confirmed. Ask the team lead to untick "My team is final" first.'; end if;
   select count(*) into n from team_members where team_id = t.id;
   if t.lead_id = uid then
     if n > 1 then raise exception 'You are the team lead. Other members are still in the team.'; end if;
@@ -324,6 +358,6 @@ grant select on public.teams, public.team_members, public.events, public.registr
 grant select, insert, update, delete on public.evaluations to authenticated;
 grant execute on function
   public.is_admin(), public.my_team_ids(), public.register_for_event(text),
-  public.create_team(text, text), public.join_team(text),
+  public.create_team(text, text), public.join_team(text), public.lock_team(boolean, text),
   public.submit_project(text, text, text, text, text), public.leave_team(text), public.my_team_roster(text)
   to authenticated;
