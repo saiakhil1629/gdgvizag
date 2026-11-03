@@ -36,6 +36,7 @@ alter table public.profiles add constraint profiles_coding_level_check
 --   needs_demo        : the submission must include a demo link
 --   max_team          : most members a team may have (a team can be any size from 1 up to this)
 --   confirm_team      : the lead must tick "My team is final" (locks the team) before submitting
+--   flow              : 'simple' = one project form, 'staged' = team lock > problem+idea > image+slides > GitHub+live site
 create table if not exists public.events (
   key text primary key,
   name text not null,
@@ -46,12 +47,14 @@ create table if not exists public.events (
 );
 alter table public.events add column if not exists max_team int not null default 6;
 alter table public.events add column if not exists confirm_team boolean not null default false;
+alter table public.events add column if not exists flow text not null default 'simple';
 insert into public.events (key, name, submissions_close, college_pattern, college_label, needs_demo) values
   ('p2p', 'Prompt to Product', null, null, null, false),
   ('l2g', 'Local2Global Hack', '2026-11-06 09:00:00+05:30', 'gayatri|gvp', 'Gayatri Vidya Parishad (GVP)', true)
 on conflict (key) do nothing;
 -- Local2Global: teams of 1 to 5, confirmed by the lead. (Runs once; later edits in the Table Editor are kept.)
 update public.events set max_team = 5, confirm_team = true where key = 'l2g' and confirm_team = false;
+update public.events set flow = 'staged' where key = 'l2g' and flow = 'simple';
 
 create table if not exists public.teams (
   id uuid primary key default gen_random_uuid(),
@@ -69,6 +72,26 @@ alter table public.teams add column if not exists event text not null default 'p
 alter table public.teams add column if not exists demo_url text;
 -- Set when the lead confirms the team is final. A confirmed team cannot gain or lose members.
 alter table public.teams add column if not exists locked_at timestamptz;
+-- Staged flow (Local2Global): stage 2 problem + idea confirmed, stage 3 jury image + links locked, stage 4 repo + live site.
+alter table public.teams add column if not exists idea_confirmed_at timestamptz;
+alter table public.teams add column if not exists jury_image_path text;
+alter table public.teams add column if not exists gemini_chat_url text;
+alter table public.teams add column if not exists slides_url text;
+alter table public.teams add column if not exists assets_locked_at timestamptz;
+alter table public.teams add column if not exists github_url text;
+alter table public.teams add column if not exists live_url text;
+alter table public.teams drop constraint if exists teams_slides_url_check;
+alter table public.teams add constraint teams_slides_url_check
+  check (slides_url is null or (slides_url ~* '^https://docs\.google\.com/presentation/d/[A-Za-z0-9_-]+' and char_length(slides_url) <= 500));
+alter table public.teams drop constraint if exists teams_gemini_chat_url_check;
+alter table public.teams add constraint teams_gemini_chat_url_check
+  check (gemini_chat_url is null or (gemini_chat_url ~* '^https://(gemini\.google\.com|g\.co)/.+' and char_length(gemini_chat_url) <= 500));
+alter table public.teams drop constraint if exists teams_github_url_check;
+alter table public.teams add constraint teams_github_url_check
+  check (github_url is null or (github_url ~* '^https://(www\.)?github\.com/[^/]+/[^/]+' and char_length(github_url) <= 500));
+alter table public.teams drop constraint if exists teams_live_url_check;
+alter table public.teams add constraint teams_live_url_check
+  check (live_url is null or (live_url ~* '^https?://' and char_length(live_url) <= 500));
 alter table public.teams drop constraint if exists teams_demo_url_check;
 alter table public.teams add constraint teams_demo_url_check
   check (demo_url is null or (demo_url ~* '^https?://' and char_length(demo_url) <= 500));
@@ -277,6 +300,7 @@ begin
   select * into t from teams where lead_id = uid and event = p_event for update;
   if not found then raise exception 'Only the team lead can submit the project.'; end if;
   select * into e from events where key = p_event;
+  if e.flow = 'staged' then raise exception 'This event uses the step-by-step submission.'; end if;
   if e.submissions_close is not null and now() > e.submissions_close then
     raise exception 'Submissions for % are closed.', e.name;
   end if;
@@ -311,6 +335,9 @@ begin
   select * into e from events where key = p_event;
   if e.submissions_close is not null and now() > e.submissions_close then
     raise exception 'The deadline for % has passed, so the team can no longer be changed.', e.name;
+  end if;
+  if not p_locked and (t.problem_statement is not null or t.idea_confirmed_at is not null) then
+    raise exception 'Your team is locked for good because the problem statement is already saved. Ask an admin if you need a change.';
   end if;
   update teams set locked_at = case when p_locked then coalesce(locked_at, now()) else null end
    where id = t.id returning * into t;
@@ -350,14 +377,204 @@ language sql stable security definer set search_path = public as $$
   order by (t.lead_id = tm.user_id) desc, tm.joined_at;
 $$;
 
+-- ---------------------------------------------------------------- staged submission (Local2Global)
+-- Admin's manual checks for a team: is the image really from Gemini, do the links open.
+create table if not exists public.team_checks (
+  team_id uuid primary key references public.teams (id) on delete cascade,
+  image_ok boolean not null default false,
+  slides_ok boolean not null default false,
+  github_ok boolean not null default false,
+  live_ok boolean not null default false,
+  checked_by uuid,
+  updated_at timestamptz not null default now()
+);
+alter table public.team_checks enable row level security;
+drop policy if exists team_checks_all on public.team_checks;
+create policy team_checks_all on public.team_checks for all to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+
+-- Jury images live in a private bucket: 15 MB max, PNG/JPG/WebP only. One file per team: <team id>/jury-image
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('jury-images', 'jury-images', false, 15728640, array['image/png', 'image/jpeg', 'image/webp'])
+on conflict (id) do update set public = false, file_size_limit = 15728640,
+  allowed_mime_types = array['image/png', 'image/jpeg', 'image/webp'];
+
+drop policy if exists jury_images_read on storage.objects;
+create policy jury_images_read on storage.objects for select to authenticated
+  using (bucket_id = 'jury-images' and (public.is_admin()
+    or (storage.foldername(name))[1] in (select x::text from public.my_team_ids() x)));
+drop policy if exists jury_images_insert on storage.objects;
+create policy jury_images_insert on storage.objects for insert to authenticated
+  with check (bucket_id = 'jury-images' and exists (
+    select 1 from public.teams t
+    where objects.name = t.id::text || '/jury-image' and t.lead_id = auth.uid()
+      and t.idea_confirmed_at is not null and t.assets_locked_at is null));
+drop policy if exists jury_images_update on storage.objects;
+create policy jury_images_update on storage.objects for update to authenticated
+  using (bucket_id = 'jury-images' and exists (
+    select 1 from public.teams t
+    where objects.name = t.id::text || '/jury-image' and t.lead_id = auth.uid()
+      and t.idea_confirmed_at is not null and t.assets_locked_at is null))
+  with check (bucket_id = 'jury-images' and exists (
+    select 1 from public.teams t
+    where objects.name = t.id::text || '/jury-image' and t.lead_id = auth.uid()
+      and t.idea_confirmed_at is not null and t.assets_locked_at is null));
+drop policy if exists jury_images_delete on storage.objects;
+create policy jury_images_delete on storage.objects for delete to authenticated
+  using (bucket_id = 'jury-images' and public.is_admin());
+
+-- Internal: the signed-in lead's team for a staged event, locked for update, with the deadline checked.
+create or replace function public.staged_team(p_event text) returns public.teams
+language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  t public.teams;
+  e public.events;
+begin
+  select * into t from teams where lead_id = uid and event = p_event for update;
+  if not found then raise exception 'Only the team lead can submit.'; end if;
+  select * into e from events where key = p_event;
+  if e.flow <> 'staged' then raise exception 'This event does not use the step-by-step submission.'; end if;
+  if e.submissions_close is not null and now() > e.submissions_close then
+    raise exception 'Submissions for % are closed.', e.name;
+  end if;
+  return t;
+end $$;
+
+-- Stage 2: problem statement and idea (a draft can be saved many times until it is confirmed).
+create or replace function public.save_idea(p_problem text, p_idea text, p_event text default 'l2g') returns public.teams
+language plpgsql security definer set search_path = public as $$
+declare
+  t public.teams;
+begin
+  t := staged_team(p_event);
+  if t.locked_at is null then raise exception 'Lock your team first: tick "My team is final".'; end if;
+  if t.idea_confirmed_at is not null then raise exception 'The problem statement and idea are already confirmed.'; end if;
+  p_problem := btrim(coalesce(p_problem, ''));
+  p_idea := btrim(coalesce(p_idea, ''));
+  if char_length(p_problem) < 10 then raise exception 'Describe the problem statement (at least 10 characters).'; end if;
+  if char_length(p_problem) > 2000 then raise exception 'The problem statement is too long (2000 characters at most).'; end if;
+  if char_length(p_idea) < 10 then raise exception 'Describe your idea (at least 10 characters).'; end if;
+  if char_length(p_idea) > 3000 then raise exception 'The idea is too long (3000 characters at most).'; end if;
+  update teams set problem_statement = p_problem, idea = p_idea where id = t.id returning * into t;
+  return t;
+end $$;
+
+create or replace function public.confirm_idea(p_event text default 'l2g') returns public.teams
+language plpgsql security definer set search_path = public as $$
+declare
+  t public.teams;
+begin
+  t := staged_team(p_event);
+  if t.locked_at is null then raise exception 'Lock your team first: tick "My team is final".'; end if;
+  if t.problem_statement is null or t.idea is null then raise exception 'Save your problem statement and idea first.'; end if;
+  update teams set idea_confirmed_at = coalesce(idea_confirmed_at, now()) where id = t.id returning * into t;
+  return t;
+end $$;
+
+-- Stage 3: the jury image (already uploaded to the bucket), the Gemini chat link and the Google Slides view link.
+create or replace function public.save_assets(p_image_path text, p_gemini text, p_slides text, p_event text default 'l2g') returns public.teams
+language plpgsql security definer set search_path = public as $$
+declare
+  t public.teams;
+begin
+  t := staged_team(p_event);
+  if t.idea_confirmed_at is null then raise exception 'Confirm your problem statement and idea first.'; end if;
+  if t.assets_locked_at is not null then raise exception 'The image and links are already locked.'; end if;
+  p_gemini := btrim(coalesce(p_gemini, ''));
+  p_slides := btrim(coalesce(p_slides, ''));
+  if coalesce(p_image_path, '') <> t.id::text || '/jury-image' then raise exception 'Upload your image again.'; end if;
+  if not exists (select 1 from storage.objects where bucket_id = 'jury-images' and name = p_image_path) then
+    raise exception 'The image upload was not found. Upload it again.';
+  end if;
+  if p_gemini !~* '^https://(gemini\.google\.com|g\.co)/.+' then
+    raise exception 'Paste the share link of the Gemini chat that made the image (it starts with https://gemini.google.com/).';
+  end if;
+  if p_slides !~* '^https://docs\.google\.com/presentation/d/[A-Za-z0-9_-]+' then
+    raise exception 'Paste a Google Slides link (it starts with https://docs.google.com/presentation/d/).';
+  end if;
+  update teams set jury_image_path = p_image_path, gemini_chat_url = p_gemini, slides_url = p_slides
+   where id = t.id returning * into t;
+  return t;
+end $$;
+
+create or replace function public.lock_assets(p_event text default 'l2g') returns public.teams
+language plpgsql security definer set search_path = public as $$
+declare
+  t public.teams;
+begin
+  t := staged_team(p_event);
+  if t.jury_image_path is null or t.gemini_chat_url is null or t.slides_url is null then
+    raise exception 'Submit the image, the Gemini link and the Slides link first.';
+  end if;
+  update teams set assets_locked_at = coalesce(assets_locked_at, now()) where id = t.id returning * into t;
+  return t;
+end $$;
+
+-- Stage 4: the GitHub repository and the live website. Both must work. Editable until the deadline.
+create or replace function public.save_final_links(p_github text, p_live text, p_event text default 'l2g') returns public.teams
+language plpgsql security definer set search_path = public as $$
+declare
+  t public.teams;
+begin
+  t := staged_team(p_event);
+  if t.assets_locked_at is null then raise exception 'Lock the image and links first.'; end if;
+  p_github := btrim(coalesce(p_github, ''));
+  p_live := btrim(coalesce(p_live, ''));
+  if p_github !~* '^https://(www\.)?github\.com/[^/]+/[^/]+' then
+    raise exception 'The GitHub link must look like https://github.com/your-name/your-repo';
+  end if;
+  if p_live !~* '^https?://' then raise exception 'The live website link must start with https://'; end if;
+  update teams set github_url = p_github, live_url = p_live, submitted_at = coalesce(submitted_at, now())
+   where id = t.id returning * into t;
+  return t;
+end $$;
+
+-- Admin tools. Reopen a stage so the lead can edit again (2 = problem+idea, 3 = image+links, 1 = the team itself).
+create or replace function public.admin_reopen_stage(p_team uuid, p_stage int) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then raise exception 'Admins only.'; end if;
+  if p_stage = 1 then
+    update teams set locked_at = null, idea_confirmed_at = null, assets_locked_at = null where id = p_team;
+  elsif p_stage = 2 then
+    update teams set idea_confirmed_at = null, assets_locked_at = null where id = p_team;
+  elsif p_stage = 3 then
+    update teams set assets_locked_at = null where id = p_team;
+  else
+    raise exception 'Stage must be 1, 2 or 3.';
+  end if;
+end $$;
+
+-- Admin: delete a team so its people can start again (they stay registered). p_remove = true also unregisters them.
+-- (The admin page deletes the team's image file first; files are removed through the Storage API, not SQL.)
+create or replace function public.admin_reset_team(p_team uuid, p_remove boolean default false) returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  t public.teams;
+begin
+  if not public.is_admin() then raise exception 'Admins only.'; end if;
+  select * into t from teams where id = p_team for update;
+  if not found then return; end if;
+  if p_remove then
+    delete from evaluations where event = t.event and user_id in (select user_id from team_members where team_id = t.id);
+    delete from registrations where event = t.event and user_id in (select user_id from team_members where team_id = t.id);
+  end if;
+  delete from teams where id = t.id; -- members and checks go with it
+end $$;
+
 -- ---------------------------------------------------------------- permissions
 revoke all on all tables in schema public from anon;
 revoke execute on all functions in schema public from public, anon;
 grant select, insert, update on public.profiles to authenticated;
 grant select on public.teams, public.team_members, public.events, public.registrations to authenticated;
 grant select, insert, update, delete on public.evaluations to authenticated;
+grant select, insert, update, delete on public.team_checks to authenticated;
 grant execute on function
   public.is_admin(), public.my_team_ids(), public.register_for_event(text),
   public.create_team(text, text), public.join_team(text), public.lock_team(boolean, text),
+  public.save_idea(text, text, text), public.confirm_idea(text), public.save_assets(text, text, text, text),
+  public.lock_assets(text), public.save_final_links(text, text, text),
+  public.admin_reopen_stage(uuid, int), public.admin_reset_team(uuid, boolean),
   public.submit_project(text, text, text, text, text), public.leave_team(text), public.my_team_roster(text)
   to authenticated;

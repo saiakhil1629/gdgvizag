@@ -1140,3 +1140,25 @@ body:not(.has-sfx) .sfx { display: none; }
 .hk-confirm input { flex: none; width: 24px; height: 24px; margin-top: 2px; accent-color: var(--blue); cursor: pointer; }
 .hk-confirm span { min-width: 0; overflow-wrap: anywhere; }
 .adm-team > header { flex-wrap: wrap; gap: 8px; }
+
+/* Step-by-step submission (Local2Global) */
+.hk-stages { display: grid; gap: 14px; margin: 16px 0; }
+.hk-stage { padding: 18px; border-radius: 22px; background: var(--surface); display: grid; gap: 10px; }
+.hk-stage > header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.hk-stage h4 { margin: 0; }
+.hk-stage p, .hk-stage small { margin: 0; overflow-wrap: anywhere; }
+.hk-stage small { color: var(--on-2); }
+.hk-stage.now { outline: 2px solid var(--blue); }
+.hk-stage.done { background: color-mix(in srgb, var(--blue-c) 35%, var(--surface)); }
+.hk-tag.off { opacity: .6; }
+.hk-img { display: grid; gap: 6px; }
+.hk-img img { max-width: 100%; max-height: 420px; width: auto; height: auto; border-radius: 16px; background: var(--surface); object-fit: contain; }
+.hk-stage input[type=file] { max-width: 100%; }
+
+/* Admin: staged submission view */
+.adm-img { display: grid; gap: 6px; margin: 8px 0; }
+.adm-img img { max-width: min(100%, 560px); max-height: 420px; width: auto; height: auto; border-radius: 16px; object-fit: contain; background: var(--surface); }
+.adm-checks { margin: 12px 0; padding: 12px 14px; border: 0; border-radius: 16px; background: color-mix(in srgb, var(--blue-c) 30%, var(--surface)); display: grid; gap: 6px; }
+.adm-checks legend { font-weight: 700; padding: 0 4px; }
+.adm-teamtools { margin-top: 8px; }
+.adm-hint { margin: 4px 0 0; color: var(--on-2); }

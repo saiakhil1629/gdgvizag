@@ -34,10 +34,10 @@
     let state = { session: null, profile: null, registered: false, cfg: null, team: null, roster: [], role: null, editing: false };
 
     const setMsg = (text, kind = "error") => {
-      const m = panel.querySelector(".hk-msg");
+      const m = panel.querySelector(".hk-top-msg") || panel.querySelector(".hk-msg");
       if (!m) return;
       m.textContent = text || "";
-      m.className = `auth-msg hk-msg is-${kind}`;
+      m.className = `auth-msg hk-msg${m.classList.contains("hk-top-msg") ? " hk-top-msg" : ""} is-${kind}`;
       m.hidden = !text;
     };
     const friendly = (err) => {
@@ -91,6 +91,7 @@
       if (!state.session) return renderLogin();
       if (!state.profile || !state.registered || state.editing) renderProfile();
       else if (!state.team) renderRole();
+      else if (rule().flow === "staged") renderStaged();
       else renderTeam();
       const who = document.createElement("p");
       who.className = "hk-who";
@@ -282,6 +283,208 @@
         if (error) { setMsg(friendly(error)); busy(btn, false, label); return; }
         await load();
         setMsg("Project saved.", "ok");
+      });
+    }
+
+    // ---- Step-by-step submission (events whose flow is "staged"): 1 team lock, 2 problem + idea, 3 image + slides, 4 GitHub + live site.
+    const RX = {
+      gemini: /^https:\/\/(gemini\.google\.com|g\.co)\/.+/i,
+      slides: /^https:\/\/docs\.google\.com\/presentation\/d\/[A-Za-z0-9_-]+/i,
+      github: /^https:\/\/(www\.)?github\.com\/[^/]+\/[^/]+/i,
+      live: /^https?:\/\/.+/i,
+    };
+    const BUCKET = "jury-images", MAX_IMG = 15 * 1024 * 1024, IMG_TYPES = ["image/png", "image/jpeg", "image/webp"];
+    const msgIn = (scope, text, kind = "error") => {
+      const m = scope && scope.querySelector(".hk-msg");
+      if (!m) return;
+      m.textContent = text || "";
+      m.className = `auth-msg hk-msg is-${kind}`;
+      m.hidden = !text;
+    };
+    const flash = (sel, text, kind = "ok") => msgIn(panel.querySelector(sel), text, kind);
+    const linkTo = (u) => (isUrl(u) ? `<a href="${s(u)}" target="_blank" rel="noopener noreferrer">${s(u)}</a>` : "-");
+
+    function renderStaged() {
+      const t = state.team, n = state.roster.length;
+      const isLead = t.lead_id === state.session.user.id;
+      const closed = isClosed();
+      const dis = closed ? "disabled" : "";
+      const locked = !!t.locked_at, ideaDone = !!t.idea_confirmed_at, assetsDone = !!t.assets_locked_at, finalDone = !!t.submitted_at;
+      const assetsSaved = !!(t.jury_image_path && t.gemini_chat_url && t.slides_url);
+      const stage = !locked ? 1 : !ideaDone ? 2 : !assetsDone ? 3 : 4;
+      const stuck = !!t.problem_statement || ideaDone; // once the idea is saved the team lock can no longer be undone
+      const tag = (done, open) => (done ? '<span class="hk-tag">Done</span>' : open ? '<span class="hk-tag warn">In progress</span>' : '<span class="hk-tag off">Waiting</span>');
+      const people = state.roster.map((m) => `<li><span class="hk-av">${s((m.name || "?").trim()[0] || "?")}</span><div><b>${s(m.name)}${m.is_me ? " (you)" : ""}</b><small>${s(m.college)}</small></div>${m.is_lead ? '<span class="hk-tag">Lead</span>' : ""}</li>`).join("");
+      const deadline = closes() ? `<p class="${closed ? "auth-msg is-warn" : "hk-note"}">${closed ? `Submissions closed on ${s(closesText())}.` : `Everything closes on <b>${s(closesText())}</b>.`}</p>` : "";
+      const stageBox = (no, title, done, open, body) => `<section class="hk-stage${done ? " done" : open ? " now" : ""}"><header><h4>Stage ${no}. ${title}</h4>${tag(done, open)}</header>${body}</section>`;
+
+      // Stage 1: team lock
+      const s1 = stageBox(1, "Lock your team", locked, !locked, isLead
+        ? `<label class="hk-confirm"><input type="checkbox" id="hk-lock" ${locked ? "checked" : ""} ${closed || (locked && stuck) ? "disabled" : ""}><span><b>Team lock</b> (${n} ${n === 1 ? "member" : "members"}). Fill your team with 1 to ${maxTeam()} members, then tick this box. Nobody can join or leave after that.${locked && stuck ? " Your team is locked for good now. Ask an admin if you must change it." : ""}</span></label>`
+        : `<p class="hk-note">${locked ? "Your team lead has locked the team." : "Waiting for your team lead to lock the team."}</p>`);
+
+      // Stage 2: problem statement and idea
+      const readIdea = `<p><b>Problem statement:</b> ${s(t.problem_statement)}</p><p><b>Idea:</b> ${s(t.idea)}</p>`;
+      const s2 = stageBox(2, "Problem statement and idea", ideaDone, locked && !ideaDone, !locked ? '<p class="hk-note">Opens when your team is locked.</p>'
+        : ideaDone ? `${readIdea}<p class="hk-note">Confirmed. It cannot be changed now.</p>`
+        : isLead ? `<form id="hk-idea">
+            <label class="field">Problem statement<textarea name="problem" rows="3" maxlength="2000" required ${dis}>${s(t.problem_statement)}</textarea></label>
+            <label class="field">Your idea<textarea name="idea" rows="4" maxlength="3000" required ${dis}>${s(t.idea)}</textarea></label>
+            <p class="auth-msg hk-msg" role="status" aria-live="polite" hidden></p>
+            <div class="cta"><button class="btn btn-tonal" type="submit" ${dis}>Save draft</button><button class="btn" type="button" id="hk-idea-confirm" ${dis}>Confirm problem statement and idea</button></div>
+            <small>After you confirm, the text cannot be changed and stage 3 opens.</small></form>`
+        : (t.problem_statement ? `${readIdea}<p class="hk-note">Your team lead has not confirmed it yet.</p>` : "<p>Your team lead is writing the problem statement and idea.</p>"));
+
+      // Stage 3: jury image + Gemini chat link + Google Slides link
+      const preview = `<div class="hk-img" id="hk-imgbox" ${t.jury_image_path ? "" : "hidden"}><img id="hk-preview" alt="Jury image of the problem statement and idea" hidden><small id="hk-preview-note">Loading image...</small></div>`;
+      const readAssets = `${preview}<p><b>Gemini chat:</b> ${linkTo(t.gemini_chat_url)}</p><p><b>Google Slides:</b> ${linkTo(t.slides_url)}</p>`;
+      const s3 = stageBox(3, "Jury image and slides", assetsDone, ideaDone && !assetsDone, !ideaDone ? '<p class="hk-note">Opens when the problem statement and idea are confirmed.</p>'
+        : assetsDone ? `${readAssets}<p class="hk-note">Locked.</p>`
+        : isLead ? `<form id="hk-assets">
+            <p>Make <b>one image</b> that shows your problem statement and your idea, using <b>Gemini</b>. This is the image the jury will see.</p>
+            <label class="field">Image (PNG, JPG or WebP, up to 15 MB)<input name="image" type="file" accept="image/png,image/jpeg,image/webp" ${dis}></label>
+            ${preview}
+            <label class="field">Link to the Gemini chat that made the image<input name="gemini" type="url" placeholder="https://gemini.google.com/share/..." maxlength="500" required ${dis} value="${s(t.gemini_chat_url)}"></label>
+            <small>In Gemini open the chat, press Share, and copy the link.</small>
+            <label class="field">Google Slides link (view link)<input name="slides" type="url" placeholder="https://docs.google.com/presentation/d/..." maxlength="500" required ${dis} value="${s(t.slides_url)}"></label>
+            <small>In Google Slides press Share, set General access to "Anyone with the link" (Viewer), then copy the link.</small>
+            <p class="auth-msg hk-msg" role="status" aria-live="polite" hidden></p>
+            <div class="cta"><button class="btn btn-tonal" type="submit" ${dis}>Submit image and links</button><button class="btn" type="button" id="hk-assets-lock" ${assetsSaved && !closed ? "" : "disabled"}>Lock this stage</button></div>
+            <small>Lock opens after you have submitted. Locking moves your team to stage 4.</small></form>`
+        : (assetsSaved ? `${readAssets}<p class="hk-note">Your team lead has not locked this stage yet.</p>` : "<p>Your team lead is preparing the image and slides.</p>"));
+
+      // Stage 4: GitHub + live website
+      const warn = '<p class="auth-msg is-warn">Both links must open properly. A team whose link does not work will be removed.</p>';
+      const s4 = stageBox(4, "GitHub and live website", finalDone, assetsDone && !finalDone, !assetsDone ? '<p class="hk-note">Opens when stage 3 is locked.</p>'
+        : isLead ? `<form id="hk-final">${warn}
+            <label class="field">GitHub repository link<input name="github" type="url" placeholder="https://github.com/your-name/your-repo" maxlength="500" required ${dis} value="${s(t.github_url)}"></label>
+            <label class="field">Live website link<input name="live" type="url" placeholder="https://" maxlength="500" required ${dis} value="${s(t.live_url)}"></label>
+            <p class="auth-msg hk-msg" role="status" aria-live="polite" hidden></p>
+            <button class="btn" type="submit" ${dis}>${finalDone ? "Update links" : "Submit links"}</button></form>`
+        : `${warn}${finalDone ? `<p><b>GitHub:</b> ${linkTo(t.github_url)}</p><p><b>Live website:</b> ${linkTo(t.live_url)}</p>` : "<p>Your team lead has not submitted the links yet.</p>"}`);
+
+      panel.innerHTML = `<div class="hk-step">
+        <p class="hk-stepno">${isLead ? "You are the Team Lead" : "You are a Team Member"}</p>
+        <h3>${s(t.name)}</h3>
+        <div class="hk-code"><span>Team code</span><b id="hk-code">${s(t.code)}</b><button type="button" class="btn btn-sm btn-tonal" id="hk-copy">Copy</button></div>
+        <p class="hk-note">${n} of ${maxTeam()} members &middot; ${finalDone ? "All stages done" : `Stage ${stage} of 4`}</p>
+        <ul class="hk-people">${people}</ul>
+        ${deadline}
+        <div class="hk-stages">${s1}${s2}${s3}${s4}</div>
+        <div class="cta hk-actions"><button type="button" class="btn btn-sm btn-tonal" id="hk-refresh">Refresh team</button><button type="button" class="btn btn-sm btn-ghost" id="hk-edit">Edit my details</button><button type="button" class="btn btn-sm btn-ghost" id="hk-leave" ${locked ? 'disabled title="Your team is locked"' : ""}>Leave team</button></div>
+        <p class="auth-msg hk-msg hk-top-msg" role="status" aria-live="polite" hidden></p>
+      </div>`;
+
+      panel.querySelector("#hk-copy").addEventListener("click", async (e) => {
+        try { await navigator.clipboard.writeText(t.code); e.target.textContent = "Copied"; } catch { e.target.textContent = t.code; }
+        setTimeout(() => { e.target.textContent = "Copy"; }, 1500);
+      });
+      panel.querySelector("#hk-refresh").addEventListener("click", load);
+      panel.querySelector("#hk-edit").addEventListener("click", () => { state.editing = true; render(); });
+      panel.querySelector("#hk-leave").addEventListener("click", async () => {
+        if (!confirm("Leave this team?")) return;
+        const { error } = await sb.rpc("leave_team", { p_event: EVENT });
+        if (error) return setMsg(friendly(error));
+        load();
+      });
+
+      // The saved image is private, so it is shown through a short-lived signed link.
+      const showImage = async () => {
+        const img = panel.querySelector("#hk-preview"), note = panel.querySelector("#hk-preview-note");
+        if (!img || !t.jury_image_path) return;
+        const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(t.jury_image_path, 3600);
+        if (error || !data) { note.textContent = "The image could not be loaded."; return; }
+        img.src = data.signedUrl; img.hidden = false; note.hidden = true;
+      };
+      showImage();
+
+      const lk = panel.querySelector("#hk-lock");
+      if (lk) lk.addEventListener("change", async () => {
+        lk.disabled = true;
+        const { error } = await sb.rpc("lock_team", { p_locked: lk.checked, p_event: EVENT });
+        await load();
+        if (error) setMsg(friendly(error));
+      });
+
+      const idea = panel.querySelector("#hk-idea");
+      if (idea) {
+        const saveIdea = () => sb.rpc("save_idea", { p_problem: idea.problem.value, p_idea: idea.idea.value, p_event: EVENT });
+        idea.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const btn = idea.querySelector("button[type=submit]"), label = btn.textContent;
+          busy(btn, true, label);
+          const { error } = await saveIdea();
+          if (error) { msgIn(idea, friendly(error)); busy(btn, false, label); return; }
+          await load();
+          flash("#hk-idea", "Draft saved. Confirm it when you are happy with it.");
+        });
+        idea.querySelector("#hk-idea-confirm").addEventListener("click", async (e) => {
+          const btn = e.currentTarget, label = btn.textContent;
+          if (!idea.reportValidity()) return;
+          if (!confirm("Confirm your problem statement and idea? You cannot change them after this.")) return;
+          busy(btn, true, label);
+          const saved = await saveIdea();
+          if (saved.error) { msgIn(idea, friendly(saved.error)); busy(btn, false, label); return; }
+          const { error } = await sb.rpc("confirm_idea", { p_event: EVENT });
+          if (error) { msgIn(idea, friendly(error)); busy(btn, false, label); return; }
+          await load();
+        });
+      }
+
+      const assets = panel.querySelector("#hk-assets");
+      if (assets) {
+        const file = assets.querySelector("input[name=image]");
+        const showLocal = (f) => {
+          const box = assets.querySelector("#hk-imgbox"), img = assets.querySelector("#hk-preview"), note = assets.querySelector("#hk-preview-note");
+          box.hidden = false; img.src = URL.createObjectURL(f); img.hidden = false; note.hidden = true;
+        };
+        file.addEventListener("change", async () => {
+          const f = file.files && file.files[0];
+          if (!f) return;
+          const stop = (m) => { file.value = ""; msgIn(assets, m); };
+          if (!IMG_TYPES.includes(f.type)) return stop("Use a PNG, JPG or WebP image.");
+          if (f.size > MAX_IMG) return stop(`That image is ${(f.size / 1048576).toFixed(1)} MB. The limit is 15 MB.`);
+          try { const bmp = await createImageBitmap(f); if (bmp.close) bmp.close(); } catch { return stop("That file is not a readable image."); }
+          msgIn(assets, "Uploading the image...", "ok");
+          const { error } = await sb.storage.from(BUCKET).upload(`${t.id}/jury-image`, f, { upsert: true, contentType: f.type });
+          if (error) return stop(/size|exceed/i.test(error.message) ? "That image is too big. The limit is 15 MB." : friendly(error));
+          state.uploadedFor = t.id;
+          showLocal(f);
+          msgIn(assets, "Image uploaded. Add the two links below and press Submit.", "ok");
+        });
+        assets.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const btn = assets.querySelector("button[type=submit]"), label = btn.textContent;
+          if (!t.jury_image_path && state.uploadedFor !== t.id) return msgIn(assets, "Upload your image first.");
+          if (!RX.gemini.test(assets.gemini.value.trim())) return msgIn(assets, "Paste the share link of the Gemini chat (it starts with https://gemini.google.com/).");
+          if (!RX.slides.test(assets.slides.value.trim())) return msgIn(assets, "Paste a Google Slides link (it starts with https://docs.google.com/presentation/d/).");
+          busy(btn, true, label);
+          const { error } = await sb.rpc("save_assets", { p_image_path: `${t.id}/jury-image`, p_gemini: assets.gemini.value, p_slides: assets.slides.value, p_event: EVENT });
+          if (error) { msgIn(assets, friendly(error)); busy(btn, false, label); return; }
+          await load();
+          flash("#hk-assets", "Submitted. Press Lock this stage when you are sure.");
+        });
+        assets.querySelector("#hk-assets-lock").addEventListener("click", async (e) => {
+          const btn = e.currentTarget, label = btn.textContent;
+          if (!confirm("Lock the image and links? You cannot change them after this.")) return;
+          busy(btn, true, label);
+          const { error } = await sb.rpc("lock_assets", { p_event: EVENT });
+          if (error) { msgIn(assets, friendly(error)); busy(btn, false, label); return; }
+          await load();
+        });
+      }
+
+      const fin = panel.querySelector("#hk-final");
+      if (fin) fin.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const btn = fin.querySelector("button[type=submit]"), label = btn.textContent;
+        if (!RX.github.test(fin.github.value.trim())) return msgIn(fin, "The GitHub link must look like https://github.com/your-name/your-repo");
+        if (!RX.live.test(fin.live.value.trim())) return msgIn(fin, "The live website link must start with https://");
+        busy(btn, true, label);
+        const { error } = await sb.rpc("save_final_links", { p_github: fin.github.value, p_live: fin.live.value, p_event: EVENT });
+        if (error) { msgIn(fin, friendly(error)); busy(btn, false, label); return; }
+        await load();
+        flash("#hk-final", "Links submitted. Keep both working until the jury has checked them.");
       });
     }
 

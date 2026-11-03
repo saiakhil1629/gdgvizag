@@ -10,11 +10,14 @@
   // One entry per event. Each has its own teams, registrations and reviews in the database (matched on "event").
   const EVENTS = {
     p2p: { name: "Prompt to Product", sub: "A 5-Day AI &amp; Developer Experience &middot; Ratan Tata Innovation Hub, Visakhapatnam", badge: "Completed", warn: false },
-    l2g: { name: "Local2Global Hack : GDGVIZAG", sub: "5&ndash;6 November 2026 &middot; Gayatri Vidya Parishad College of Engineering, Visakhapatnam", badge: "Upcoming", warn: true, confirm: true },
+    l2g: { name: "Local2Global Hack : GDGVIZAG", sub: "5&ndash;6 November 2026 &middot; Gayatri Vidya Parishad College of Engineering, Visakhapatnam", badge: "Upcoming", warn: true, confirm: true, staged: true },
   };
   let cur = "p2p"; // the event whose dashboard is open
-  const demoLine = (t) => (isUrl(t.demo_url) ? `<p><b>Demo:</b> <a href="${s(t.demo_url)}" target="_blank" rel="noopener noreferrer">${s(t.demo_url)}</a></p>` : "");
-  let me, data = { teams: [], members: [], profiles: [], evals: [] };
+  const demoLine = (t) => [["Demo", t.demo_url], ["GitHub", t.github_url], ["Live website", t.live_url], ["Slides", t.slides_url], ["Gemini chat", t.gemini_chat_url]]
+    .filter(([, u]) => isUrl(u)).map(([n, u]) => `<p><b>${n}:</b> <a href="${s(u)}" target="_blank" rel="noopener noreferrer">${s(u)}</a></p>`).join("");
+  const stageLabel = (t) => (!t.locked_at ? "Stage 1: team not locked" : !t.idea_confirmed_at ? "Stage 2: problem and idea" : !t.assets_locked_at ? "Stage 3: image and slides" : !t.submitted_at ? "Stage 4: GitHub and live site" : "All stages done");
+  const BUCKET = "jury-images";
+  let me, data = { teams: [], members: [], profiles: [], evals: [], checks: [] };
 
   async function boot() {
     if (!sb) return notice("Sign in isn't connected yet.");
@@ -53,17 +56,18 @@
   }
 
   async function load() {
-    const [t, m, r, p, e] = await Promise.all([
+    const [t, m, r, p, e, c] = await Promise.all([
       sb.from("teams").select("*").eq("event", cur).order("created_at"),
       sb.from("team_members").select("user_id, team_id, joined_at").eq("event", cur).order("joined_at"),
       sb.from("registrations").select("user_id").eq("event", cur),
       sb.from("profiles").select("*").order("created_at"),
       sb.from("evaluations").select("*").eq("event", cur),
+      sb.from("team_checks").select("*"),
     ]);
-    const bad = [t, m, r, p, e].find((x) => x.error);
+    const bad = [t, m, r, p, e, c].find((x) => x.error);
     if (bad) { notice(s(bad.error.message), "error"); return false; }
     const registered = new Set(r.data.map((x) => x.user_id));
-    data = { teams: t.data, members: m.data, profiles: p.data.filter((x) => registered.has(x.user_id)), evals: e.data };
+    data = { teams: t.data, members: m.data, profiles: p.data.filter((x) => registered.has(x.user_id)), evals: e.data, checks: c.data };
     return true;
   }
 
@@ -120,6 +124,25 @@
     }).join("")}</ol>`;
   }
 
+  // Staged submission, as the jury and admins see it: progress, text, image, links, manual checks and team tools.
+  function stagedBlock(t) {
+    const chk = data.checks.find((x) => x.team_id === t.id) || {};
+    const box = (k, label) => `<label class="adm-chk"><input type="checkbox" data-check="${k}" ${chk[k] ? "checked" : ""}><span>${label}</span></label>`;
+    const act = (a, label, extra = "") => `<button type="button" class="btn btn-sm btn-tonal adm-act" data-act="${a}" ${extra}>${label}</button>`;
+    return `<p><span class="hk-tag${t.submitted_at ? "" : " warn"}">${s(stageLabel(t))}</span></p>
+      ${t.problem_statement ? `<p><b>Problem:</b> ${s(t.problem_statement)}</p><p><b>Idea:</b> ${s(t.idea)}</p>${t.idea_confirmed_at ? "" : "<p><small>Draft, not confirmed yet.</small></p>"}` : "<p><i>No problem statement yet.</i></p>"}
+      ${t.jury_image_path ? `<div class="adm-img" data-path="${s(t.jury_image_path)}"><img alt="Jury image of ${s(t.name)}" hidden><small>Loading image...</small></div>` : "<p><i>No jury image yet.</i></p>"}
+      ${demoLine(t)}
+      <fieldset class="adm-checks"><legend>My manual checks</legend>
+        ${box("image_ok", "Image is really from Gemini")}${box("slides_ok", "Slides link opens (view access)")}${box("github_ok", "GitHub link works")}${box("live_ok", "Live website works")}
+      </fieldset>
+      <div class="adm-tools adm-teamtools">
+        ${t.assets_locked_at ? act("reopen", "Reopen image and links", 'data-stage="3"') : ""}${t.idea_confirmed_at ? act("reopen", "Reopen problem and idea", 'data-stage="2"') : ""}${t.locked_at ? act("reopen", "Reopen team lock", 'data-stage="1"') : ""}
+        ${act("reset", "Reset team")}${act("remove", "Remove team")}
+      </div>
+      <p class="adm-hint"><small>Reset deletes the team so its people can start again. Remove also takes them off this event.</small></p>`;
+  }
+
   function draw() {
     const { groups, solo, ev } = index();
     const q = (document.getElementById("adm-q")?.value || "").trim().toLowerCase();
@@ -128,10 +151,10 @@
       const shown = people.filter((p) => match(p, t));
       if (!shown.length) return "";
       const full = people.length >= MIN;
-      return `<article class="adm-team">
+      return `<article class="adm-team" data-team="${s(t.id)}">
         <header><div><h3>${s(t.name)}</h3><small>Code ${s(t.code)}</small></div>
           <span class="hk-tag ${full ? "" : "warn"}">${people.length} member${people.length === 1 ? "" : "s"}${full ? "" : ``}</span>${t.locked_at ? '<span class="hk-tag">Team confirmed</span>' : EVENTS[cur].confirm ? '<span class="hk-tag warn">Not confirmed yet</span>' : ""}</header>
-        <div class="adm-proj">${t.submitted_at
+        <div class="adm-proj">${EVENTS[cur].staged ? stagedBlock(t) : t.submitted_at
           ? `<p><b>Problem:</b> ${s(t.problem_statement)}</p><p><b>Idea:</b> ${s(t.idea)}</p><p><b>Project:</b> ${isUrl(t.project_url) ? `<a href="${s(t.project_url)}" target="_blank" rel="noopener noreferrer">${s(t.project_url)}</a>` : "-"}</p>${demoLine(t)}`
           : "<p><i>No project submitted yet.</i></p>"}</div>
         ${table(shown.map((p) => person(p, p.user_id === t.lead_id, ev)).join(""))}</article>`;
@@ -157,6 +180,13 @@
     document.getElementById("adm-csv").addEventListener("click", exportCsv);
     document.getElementById("adm-teams-csv").addEventListener("click", exportTeamsCsv);
     host.querySelectorAll("tr[data-uid]").forEach(paint);
+    host.querySelectorAll(".adm-img[data-path]").forEach(async (b) => {
+      const { data: d, error } = await sb.storage.from(BUCKET).createSignedUrl(b.dataset.path, 3600);
+      const note = b.querySelector("small");
+      if (error || !d) { note.textContent = "The image could not be loaded."; return; }
+      const img = b.querySelector("img");
+      img.src = d.signedUrl; img.hidden = false; note.innerHTML = `<a href="${esc(d.signedUrl)}" target="_blank" rel="noopener noreferrer">Open full size</a>`;
+    });
   }
 
   // Light up the stars up to the chosen one, and show Clear only when something is chosen.
@@ -208,14 +238,50 @@
   function exportTeamsCsv() {
     const { groups, ev } = index();
     const avg = (xs) => (xs.length ? (xs.reduce((x, y) => x + y, 0) / xs.length).toFixed(1) : "");
-    const head = ["Team", "Team code", "Lead name", "Lead email", "Lead phone", "Members", "Team confirmed", "Member names", "Member emails", "Colleges", "Problem statement", "Idea", "Project URL", "Demo URL", "Submitted at", "Average idea rating (1-5)", "Average presentation (1-5)"];
+    const head = ["Team", "Team code", "Lead name", "Lead email", "Lead phone", "Members", "Team confirmed", "Member names", "Member emails", "Colleges", "Problem statement", "Idea", "Project URL", "Demo URL", "GitHub URL", "Live website URL", "Slides URL", "Gemini chat link", "Stage", "Submitted at", "Average idea rating (1-5)", "Average presentation (1-5)"];
     const rows = groups.map(({ team: t, people }) => {
       const lead = people.find((p) => p.user_id === t.lead_id) || {};
       const rated = (k) => people.map((p) => (ev.get(p.user_id) || {})[k]).filter((n) => n > 0);
-      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, t.locked_at ? "Yes" : "No", people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.demo_url, t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating"))];
+      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, t.locked_at ? "Yes" : "No", people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.demo_url, t.github_url, t.live_url, t.slides_url, t.gemini_chat_url, stageLabel(t), t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating"))];
     });
     download([head, ...rows], `gdg-vizag-${cur}-teams.csv`);
   }
+
+  // Manual checks (saved per team) and the team tools: reopen a stage, reset, remove.
+  host.addEventListener("change", async (e) => {
+    const cb = e.target.closest("input[data-check]");
+    if (!cb) return;
+    const card = cb.closest("[data-team]");
+    const row = { team_id: card.dataset.team, checked_by: me.id, updated_at: new Date().toISOString() };
+    card.querySelectorAll("input[data-check]").forEach((x) => { row[x.dataset.check] = x.checked; });
+    const { error } = await sb.from("team_checks").upsert(row, { onConflict: "team_id" });
+    if (error) { cb.checked = !cb.checked; alert("Not saved: " + error.message); return; }
+    const i = data.checks.findIndex((x) => x.team_id === row.team_id);
+    if (i >= 0) data.checks[i] = { ...data.checks[i], ...row }; else data.checks.push(row);
+  });
+  host.addEventListener("click", async (e) => {
+    const b = e.target.closest(".adm-act");
+    if (!b) return;
+    const card = b.closest("[data-team]");
+    const t = data.teams.find((x) => x.id === card.dataset.team);
+    if (!t) return;
+    const act = b.dataset.act;
+    let error;
+    if (act === "reopen") {
+      const stage = +b.dataset.stage;
+      if (!confirm(`Reopen ${stage === 1 ? "the team lock" : stage === 2 ? "the problem statement and idea" : "the image and links"} for "${t.name}"? The lead can edit it again.`)) return;
+      ({ error } = await sb.rpc("admin_reopen_stage", { p_team: t.id, p_stage: stage }));
+    } else {
+      const remove = act === "remove";
+      if (!confirm(remove
+        ? `REMOVE team "${t.name}"? The team and its image are deleted and its members are taken off this event.`
+        : `RESET team "${t.name}"? The team and its image are deleted. Its members stay registered and can make a new team.`)) return;
+      if (t.jury_image_path) await sb.storage.from(BUCKET).remove([t.jury_image_path]);
+      ({ error } = await sb.rpc("admin_reset_team", { p_team: t.id, p_remove: remove }));
+    }
+    if (error) { alert(error.message); return; }
+    refresh();
+  });
 
   function exportCsv() {
     const { groups, solo, ev } = index();
