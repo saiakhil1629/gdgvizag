@@ -122,7 +122,7 @@
           <label class="field">GitHub profile link<input name="github" type="url" placeholder="https://github.com/your-name" maxlength="300" pattern="https?://(www\\.)?github\\.com/.+" title="A link like https://github.com/your-name" required value="${s(p.github_url)}"></label>
           <label class="field">LinkedIn profile link<input name="linkedin" type="url" placeholder="https://www.linkedin.com/in/your-name" maxlength="300" pattern="https?://([a-z]{2,3}\\.)?linkedin\\.com/.+" title="A link like https://www.linkedin.com/in/your-name" required value="${s(p.linkedin_url)}"></label>
         </div>
-        <label class="field">Your own project URL (your best project)<input name="best" type="url" placeholder="https://" maxlength="500" required value="${s(p.best_project_url)}"></label>
+        <label class="field">Your own project URL (your best project), optional<input name="best" type="url" placeholder="https://" maxlength="500" value="${s(p.best_project_url)}"></label>
         <fieldset class="choice hk-startup"><legend>Do you want to turn your idea into a startup?</legend>
           <label><input type="radio" name="startup" value="yes" required ${p.wants_startup === true ? "checked" : ""}><span>Yes</span></label>
           <label><input type="radio" name="startup" value="no" required ${p.wants_startup === false ? "checked" : ""}><span>No</span></label>
@@ -163,7 +163,7 @@
         busy(btn, true, label);
         const row = {
           user_id: state.session.user.id, name: f.name.value.trim(), college,
-          phone: f.phone.value.trim(), email: f.email.value.trim(), best_project_url: f.best.value.trim(),
+          phone: f.phone.value.trim(), email: f.email.value.trim(), best_project_url: f.best.value.trim() || null,
           github_url: f.github.value.trim(), linkedin_url: f.linkedin.value.trim(), coding_level: +f.level.value, wants_startup: f.startup.value === "yes",
           updated_at: new Date().toISOString(),
         };

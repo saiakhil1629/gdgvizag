@@ -1114,17 +1114,6 @@ body:not(.has-sfx) .sfx { display: none; }
 .hk-materials a { display: inline-block; padding: 8px 0; font-weight: 600; }
 .hk-materials small { display: block; color: var(--on-2); }
 
-/* Admin: Top 10 teams */
-.adm-topbox { margin: 18px 0; padding: 18px; border-radius: 22px; background: var(--surface); }
-.adm-topbox h3 { margin: 0 0 4px; }
-.adm-top { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }
-.adm-top li { display: flex; gap: 14px; align-items: flex-start; padding: 12px 14px; border-radius: 16px; background: color-mix(in srgb, var(--blue-c) 30%, var(--surface)); }
-.adm-top li:first-child { background: color-mix(in srgb, var(--blue-c) 55%, var(--surface)); }
-.adm-rank { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: var(--surface); }
-.adm-top-body { min-width: 0; overflow-wrap: anywhere; }
-.adm-top-body h4 { margin: 0 0 4px; }
-.adm-top-body p { margin: 4px 0; }
-
 /* Admin: event cards and the per-event bar */
 .adm-events { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 16px; }
 .adm-event { display: grid; gap: 10px; align-content: start; padding: 22px; border-radius: 26px; background: var(--surface); }
