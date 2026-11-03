@@ -393,6 +393,16 @@ create table if not exists public.team_checks (
   checked_by uuid,
   updated_at timestamptz not null default now()
 );
+-- The admin's star score for the whole team (1 to 5): idea, presentation skills and the website.
+alter table public.team_checks add column if not exists idea_rating smallint;
+alter table public.team_checks add column if not exists presentation_rating smallint;
+alter table public.team_checks add column if not exists website_rating smallint;
+alter table public.team_checks drop constraint if exists team_checks_idea_rating_check;
+alter table public.team_checks add constraint team_checks_idea_rating_check check (idea_rating is null or idea_rating between 1 and 5);
+alter table public.team_checks drop constraint if exists team_checks_presentation_rating_check;
+alter table public.team_checks add constraint team_checks_presentation_rating_check check (presentation_rating is null or presentation_rating between 1 and 5);
+alter table public.team_checks drop constraint if exists team_checks_website_rating_check;
+alter table public.team_checks add constraint team_checks_website_rating_check check (website_rating is null or website_rating between 1 and 5);
 alter table public.team_checks enable row level security;
 drop policy if exists team_checks_all on public.team_checks;
 create policy team_checks_all on public.team_checks for all to authenticated

@@ -103,14 +103,20 @@
   function stagedBlock(t) {
     const chk = data.checks.find((x) => x.team_id === t.id) || {};
     const box = (k, label) => `<label class="adm-chk"><input type="checkbox" data-check="${k}" ${chk[k] ? "checked" : ""}><span>${label}</span></label>`;
+    const score = (k, label) => `<div class="adm-rate" data-sk="${k}" role="radiogroup" aria-label="${label}"><span class="adm-rl">${label}</span><span class="adm-rs">${[1, 2, 3, 4, 5].map((n) => `<label><input type="radio" name="${k}-${s(t.id)}" value="${n}" ${chk[k] === n ? "checked" : ""}><span aria-hidden="true">&#9733;</span><i class="sr">${n} ${n === 1 ? "star" : "stars"}</i></label>`).join("")}<button type="button" class="adm-clear" aria-label="Clear ${label}">Clear</button></span></div>`;
     const act = (a, label, extra = "") => `<button type="button" class="btn btn-sm btn-tonal adm-act" data-act="${a}" ${extra}>${label}</button>`;
     return `<p><span class="hk-tag${t.submitted_at ? "" : " warn"}">${s(stageLabel(t))}</span></p>
       ${t.problem_statement ? `<p><b>Problem:</b> ${s(t.problem_statement)}</p><p><b>Idea:</b> ${s(t.idea)}</p>${t.idea_confirmed_at ? "" : "<p><small>Draft, not confirmed yet.</small></p>"}` : "<p><i>No problem statement yet.</i></p>"}
       ${t.jury_image_path ? `<div class="adm-img" data-path="${s(t.jury_image_path)}"><img alt="Jury image of ${s(t.name)}" hidden><small>Loading image...</small></div>` : "<p><i>No jury image yet.</i></p>"}
       ${demoLine(t)}
-      <fieldset class="adm-checks"><legend>My manual checks</legend>
-        ${box("image_ok", "Image is really from Gemini")}${box("slides_ok", "Slides link opens (view access)")}${box("github_ok", "GitHub link works")}${box("live_ok", "Live website works")}
-      </fieldset>
+      <div class="adm-checkgrid">
+        <fieldset class="adm-checks"><legend>My manual checks</legend>
+          ${box("image_ok", "Image is really from Gemini")}${box("slides_ok", "Slides link opens (view access)")}${box("github_ok", "GitHub link works")}${box("live_ok", "Live website works")}
+        </fieldset>
+        <fieldset class="adm-checks adm-score"><legend>Team score</legend>
+          ${score("idea_rating", "Idea")}${score("presentation_rating", "Presentation skills")}${score("website_rating", "Website")}
+        </fieldset>
+      </div>
       <div class="adm-tools adm-teamtools">
         ${t.assets_locked_at ? act("reopen", "Reopen image and links", 'data-stage="3"') : ""}${t.idea_confirmed_at ? act("reopen", "Reopen problem and idea", 'data-stage="2"') : ""}${t.locked_at ? act("reopen", "Reopen team lock", 'data-stage="1"') : ""}
         ${act("reset", "Reset team")}${act("remove", "Remove team")}
@@ -153,7 +159,7 @@
     document.getElementById("adm-refresh").addEventListener("click", refresh);
     document.getElementById("adm-csv").addEventListener("click", exportCsv);
     document.getElementById("adm-teams-csv").addEventListener("click", exportTeamsCsv);
-    host.querySelectorAll("tr[data-uid]").forEach(paint);
+    host.querySelectorAll("tr[data-uid], .adm-score").forEach(paint);
     host.querySelectorAll(".adm-img[data-path]").forEach(async (b) => {
       const { data: d, error } = await sb.storage.from(BUCKET).createSignedUrl(b.dataset.path, 3600);
       const note = b.querySelector("small");
@@ -190,10 +196,10 @@
   host.addEventListener("click", (e) => {
     const b = e.target.closest(".adm-clear");
     if (!b) return;
-    const tr = b.closest("tr[data-uid]");
+    const root = b.closest("tr[data-uid]") || b.closest(".adm-score");
     b.closest(".adm-rate").querySelectorAll("input").forEach((i) => { i.checked = false; });
-    paint(tr);
-    save(tr);
+    paint(root);
+    if (root.matches("tr")) save(root); else saveChecks(root.closest("[data-team]"));
   });
 
   const download = (rows, name) => {
@@ -210,26 +216,31 @@
   function exportTeamsCsv() {
     const { groups, ev } = index();
     const avg = (xs) => (xs.length ? (xs.reduce((x, y) => x + y, 0) / xs.length).toFixed(1) : "");
-    const head = ["Team", "Team code", "Lead name", "Lead email", "Lead phone", "Members", "Team confirmed", "Member names", "Member emails", "Colleges", "Problem statement", "Idea", "Project URL", "Demo URL", "GitHub URL", "Live website URL", "Slides URL", "Gemini chat link", "Stage", "Submitted at", "Average idea rating (1-5)", "Average presentation (1-5)"];
+    const head = ["Team", "Team code", "Lead name", "Lead email", "Lead phone", "Members", "Team confirmed", "Member names", "Member emails", "Colleges", "Problem statement", "Idea", "Project URL", "Demo URL", "GitHub URL", "Live website URL", "Slides URL", "Gemini chat link", "Stage", "Submitted at", "Average idea rating (1-5)", "Average presentation (1-5)", "Team score: idea (1-5)", "Team score: presentation (1-5)", "Team score: website (1-5)"];
     const rows = groups.map(({ team: t, people }) => {
       const lead = people.find((p) => p.user_id === t.lead_id) || {};
       const rated = (k) => people.map((p) => (ev.get(p.user_id) || {})[k]).filter((n) => n > 0);
-      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, t.locked_at ? "Yes" : "No", people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.demo_url, t.github_url, t.live_url, t.slides_url, t.gemini_chat_url, stageLabel(t), t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating"))];
+      const ck = data.checks.find((x) => x.team_id === t.id) || {};
+      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, t.locked_at ? "Yes" : "No", people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.demo_url, t.github_url, t.live_url, t.slides_url, t.gemini_chat_url, stageLabel(t), t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating")), ck.idea_rating || "", ck.presentation_rating || "", ck.website_rating || ""];
     });
     download([head, ...rows], `gdg-vizag-${cur}-teams.csv`);
   }
 
   // Manual checks (saved per team) and the team tools: reopen a stage, reset, remove.
-  host.addEventListener("change", async (e) => {
-    const cb = e.target.closest("input[data-check]");
-    if (!cb) return;
-    const card = cb.closest("[data-team]");
+  async function saveChecks(card) {
     const row = { team_id: card.dataset.team, checked_by: me.id, updated_at: new Date().toISOString() };
     card.querySelectorAll("input[data-check]").forEach((x) => { row[x.dataset.check] = x.checked; });
+    card.querySelectorAll(".adm-score .adm-rate").forEach((g) => { const c = g.querySelector("input:checked"); row[g.dataset.sk] = c ? +c.value : null; });
     const { error } = await sb.from("team_checks").upsert(row, { onConflict: "team_id" });
-    if (error) { cb.checked = !cb.checked; alert("Not saved: " + error.message); return; }
+    if (error) { alert("Not saved: " + error.message); refresh(); return; }
     const i = data.checks.findIndex((x) => x.team_id === row.team_id);
     if (i >= 0) data.checks[i] = { ...data.checks[i], ...row }; else data.checks.push(row);
+  }
+  host.addEventListener("change", (e) => {
+    const el = e.target.closest("input[data-check], .adm-score input");
+    if (!el) return;
+    if (el.closest(".adm-score")) paint(el.closest(".adm-score"));
+    saveChecks(el.closest("[data-team]"));
   });
   host.addEventListener("click", async (e) => {
     const b = e.target.closest(".adm-act");
