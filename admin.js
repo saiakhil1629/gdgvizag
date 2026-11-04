@@ -97,7 +97,7 @@
       <td><b>${s(p.name)}</b>${lead ? ' <span class="hk-tag">Lead</span>' : ""}<small>${s(p.college)}</small></td>
       <td data-label="Contact"><a href="mailto:${s(p.email)}">${s(p.email)}</a><small>${s(p.phone)}</small></td>
       <td class="adm-links" data-label="Links and level">${[["GitHub", p.github_url], ["LinkedIn", p.linkedin_url], ["Best project", p.best_project_url]].filter(([, u]) => isUrl(u)).map(([n, u]) => `<a href="${s(u)}" target="_blank" rel="noopener noreferrer">${n}</a>`).join("")}<span>${stars(p.coding_level)}</span><span class="adm-startup ${p.wants_startup === true ? "yes" : ""}">Startup: ${p.wants_startup === true ? "Yes" : p.wants_startup === false ? "No" : "-"}</span></td>
-      <td class="adm-eval" data-label="Review">${rate("idea_rating", "Idea")}${rate("presentation_rating", "Presentation skills")}${volunteer}</td>
+      <td class="adm-eval" data-label="Review">${EVENTS[cur].staged ? rate("presentation_rating", "Presentation skills") + rate("knowledge_rating", "Deep knowledge of the idea") + rate("roleplay_rating", "Role play") : rate("idea_rating", "Idea") + rate("presentation_rating", "Presentation skills")}${volunteer}</td>
       <td data-label="Notes"><input class="adm-notes" type="text" maxlength="2000" placeholder="Notes" value="${s(e.notes)}" aria-label="Notes for ${s(p.name)}"><span class="adm-saved" aria-live="polite"></span></td>
     </tr>`;
   };
@@ -163,7 +163,7 @@
       const full = people.length >= MIN;
       return `<article class="adm-team" data-team="${s(t.id)}">
         <header><div><h3>${s(t.name)}</h3><small>Code ${s(t.code)}</small></div>
-          <span class="hk-tag ${full ? "" : "warn"}">${people.length} member${people.length === 1 ? "" : "s"}${full ? "" : ``}</span>${t.locked_at ? '<span class="hk-tag">Team confirmed</span>' : EVENTS[cur].confirm ? '<span class="hk-tag warn">Not confirmed yet</span>' : ""}</header>
+          <span class="hk-tag ${full ? "" : "warn"}">${people.length} member${people.length === 1 ? "" : "s"}${full ? "" : ``}</span>${EVENTS[cur].staged ? (t.lead_locked_at ? '<span class="hk-tag">Locked by lead</span>' : t.locked_at ? '<span class="hk-tag warn">Locked by admin move</span>' : '<span class="hk-tag warn">Not locked yet</span>') : t.locked_at ? '<span class="hk-tag">Team confirmed</span>' : EVENTS[cur].confirm ? '<span class="hk-tag warn">Not confirmed yet</span>' : ""}</header>
         <div class="adm-proj">${EVENTS[cur].staged ? stagedBlock(t) : t.submitted_at
           ? `<p><b>Problem:</b> ${s(t.problem_statement)}</p><p><b>Idea:</b> ${s(t.idea)}</p><p><b>Project:</b> ${isUrl(t.project_url) ? `<a href="${s(t.project_url)}" target="_blank" rel="noopener noreferrer">${s(t.project_url)}</a>` : "-"}</p>${demoLine(t)}`
           : "<p><i>No project submitted yet.</i></p>"}</div>
@@ -181,7 +181,7 @@
         <div><strong>${done}</strong><span>Want to volunteer</span></div>
         <div><strong>${data.profiles.filter((x) => x.wants_startup === true).length}</strong><span>Want a startup</span></div></div>
       <div class="adm-tools"><label class="field adm-search">Search<input id="adm-q" type="search" placeholder="Name, college, team, email" value="${s(q)}"></label>
-        <button class="btn btn-sm btn-tonal" id="adm-refresh" type="button">Refresh</button><button class="btn btn-sm btn-tonal" id="adm-csv" type="button">Export people CSV</button><button class="btn btn-sm btn-tonal" id="adm-teams-csv" type="button">Download teams CSV</button></div>
+        <button class="btn btn-sm btn-tonal" id="adm-refresh" type="button">Refresh</button><div class="adm-dl"><button class="btn btn-sm btn-tonal" id="adm-dl" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="adm-menu">Download</button><div class="adm-menu" id="adm-menu" role="menu" hidden><button type="button" role="menuitem" id="adm-csv">Export people CSV</button><button type="button" role="menuitem" id="adm-teams-csv">Download teams CSV</button><button type="button" role="menuitem" id="adm-pdf">Download PDF</button></div></div></div>
       ${cards + soloCard || '<p class="hk-note">Nothing to show yet.</p>'}`;
     const qi = document.getElementById("adm-q");
     qi.addEventListener("input", () => { const pos = qi.selectionStart; draw(); const n = document.getElementById("adm-q"); n.focus(); n.setSelectionRange(pos, pos); });
@@ -189,6 +189,10 @@
     document.getElementById("adm-refresh").addEventListener("click", refresh);
     document.getElementById("adm-csv").addEventListener("click", exportCsv);
     document.getElementById("adm-teams-csv").addEventListener("click", exportTeamsCsv);
+    document.getElementById("adm-pdf").addEventListener("click", exportPdf);
+    const dl = document.getElementById("adm-dl"), menu = document.getElementById("adm-menu");
+    dl.addEventListener("click", () => { menu.hidden = !menu.hidden; dl.setAttribute("aria-expanded", String(!menu.hidden)); });
+    menu.addEventListener("click", () => { menu.hidden = true; dl.setAttribute("aria-expanded", "false"); });
     const nx = document.getElementById("adm-next"), pv = document.getElementById("adm-prev");
     if (nx) nx.addEventListener("click", () => moveStage(true));
     if (pv) pv.addEventListener("click", () => moveStage(false));
@@ -254,7 +258,7 @@
       const lead = people.find((p) => p.user_id === t.lead_id) || {};
       const rated = (k) => people.map((p) => (ev.get(p.user_id) || {})[k]).filter((n) => n > 0);
       const ck = data.checks.find((x) => x.team_id === t.id) || {};
-      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, t.locked_at ? "Yes" : "No", people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.demo_url, t.github_url, t.live_url, t.slides_url, t.gemini_chat_url, stageLabel(t), t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating")), ck.idea_rating || "", ck.presentation_rating || "", ck.website_rating || ""];
+      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, (EVENTS[cur].staged ? t.lead_locked_at : t.locked_at) ? "Yes" : "No", people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.demo_url, t.github_url, t.live_url, t.slides_url, t.gemini_chat_url, stageLabel(t), t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating")), ck.idea_rating || "", ck.presentation_rating || "", ck.website_rating || ""];
     });
     download([head, ...rows], `gdg-vizag-${cur}-teams.csv`);
   }
@@ -299,12 +303,100 @@
     refresh();
   });
 
+  // PDF: each team (for Local2Global only the teams whose lead ticked the lock box) with its people, problem statement,
+  // idea and star scores. Names in non-English scripts are replaced by "?" because the built-in PDF fonts are Latin only.
+  function exportPdf() {
+    const J = window.jspdf && window.jspdf.jsPDF;
+    if (!J) { alert("The PDF tool could not load. Check your internet connection and try again."); return; }
+    const { groups, ev } = index();
+    const staged = !!EVENTS[cur].staged;
+    const list = groups.filter(({ team }) => !staged || team.lead_locked_at);
+    if (!list.length) { alert(staged ? "No team has been locked by its lead yet, so there is nothing to put in the PDF." : "There are no teams yet."); return; }
+    const doc = new J({ unit: "mm", format: "a4" });
+    const W = 210, H = 297, M = 14, BOTTOM = H - 18;
+    let y = M;
+    const plain = (v) => String(v == null ? "" : v).replace(/\s+/g, " ").trim().replace(/[^\x20-\x7E\u00A0-\u00FF]/g, "?");
+    const lineH = (size) => size * 0.3528 * 1.4;
+    const need = (h) => { if (y + h > BOTTOM) { doc.addPage(); y = M; } };
+    const write = (str, size, bold, gray) => {
+      doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(size); doc.setTextColor(gray ? 105 : 20);
+      const lh = lineH(size);
+      doc.splitTextToSize(plain(str) || "-", W - 2 * M).forEach((ln) => { need(lh); doc.text(ln, M, y + lh * 0.75); y += lh; });
+    };
+    const star = (cx, cy, r, on) => {
+      const pts = [];
+      for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i * Math.PI) / 5, rad = i % 2 ? r * 0.45 : r; pts.push([cx + rad * Math.cos(a), cy + rad * Math.sin(a)]); }
+      const segs = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]]);
+      segs.push([pts[0][0] - pts[9][0], pts[0][1] - pts[9][1]]);
+      if (on) doc.setFillColor(247, 186, 0); else doc.setFillColor(222, 222, 222);
+      doc.lines(segs, pts[0][0], pts[0][1], [1, 1], "F", true);
+    };
+    const starsAt = (n, x, yy) => { for (let i = 0; i < 5; i++) star(x + 2.2 + i * 5, yy, 2.1, i < (n || 0)); };
+    const cols = staged
+      ? [["Presentation skills", "presentation_rating", 62], ["Knowledge of the idea", "knowledge_rating", 98], ["Role play", "roleplay_rating", 142]]
+      : [["Idea", "idea_rating", 62], ["Presentation skills", "presentation_rating", 110]];
+
+    write(EVENTS[cur].name, 18, true);
+    write(`Teams with their people. Made on ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" })} IST.${staged ? " Only teams locked by their lead are included." : ""}`, 9, false, true);
+    y += 5;
+    list.forEach(({ team: t, people }, i) => {
+      need(70);
+      if (i > 0) { doc.setDrawColor(210); doc.line(M, y, W - M, y); y += 5; }
+      const lead = people.find((p) => p.user_id === t.lead_id);
+      write(t.name, 15, true);
+      write(`Team code ${t.code}${lead ? ", lead: " + lead.name : ""}`, 9, false, true);
+      y += 2;
+      write("Problem statement", 9, true);
+      write(t.problem_statement || "Not submitted", 10, false);
+      y += 1.5;
+      write("Idea", 9, true);
+      write(t.idea || "Not submitted", 10, false);
+      y += 2;
+      if (staged) {
+        const ck = data.checks.find((x) => x.team_id === t.id) || {};
+        need(14);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(20);
+        doc.text("Team score", M, y + 3); y += 5;
+        [["Idea", ck.idea_rating], ["Presentation skills", ck.presentation_rating], ["Website", ck.website_rating]].forEach(([label, n], k) => {
+          doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(105);
+          doc.text(label, M + k * 60, y + 3);
+          starsAt(n, M + k * 60, y + 7.2);
+        });
+        y += 12;
+      }
+      write("People", 9, true);
+      need(8);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(105);
+      cols.forEach(([label, , x]) => doc.text(label, M + x, y + 3));
+      y += 5;
+      people.forEach((p) => {
+        need(8);
+        const e = ev.get(p.user_id) || {};
+        doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(20);
+        doc.text(doc.splitTextToSize(plain(p.name) + (p.user_id === t.lead_id ? " (lead)" : ""), 58)[0], M, y + 4);
+        cols.forEach(([, k, x]) => starsAt(e[k], M + x, y + 3));
+        y += 7;
+      });
+      y += 4;
+    });
+    const pages = doc.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i); doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(120);
+      doc.text(`${plain(EVENTS[cur].name)} - page ${i} of ${pages}`, W / 2, H - 8, { align: "center" });
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(doc.output("blob"));
+    a.download = `gdg-vizag-${cur}-teams-and-people.pdf`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
   function exportCsv() {
     const { groups, solo, ev } = index();
     const cell = (v) => { let t = String(v == null ? "" : v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
-    const head = ["Team", "Team code", "Role", "Name", "College", "Phone", "Email", "GitHub", "LinkedIn", "Coding level (0-5)", "Wants to build a startup", "Best project", "Team problem", "Team idea", "Team project URL", "Team demo URL", "Idea rating (1-5)", "Presentation skills (1-5)", "Volunteering interest", "Notes"];
+    const head = ["Team", "Team code", "Role", "Name", "College", "Phone", "Email", "GitHub", "LinkedIn", "Coding level (0-5)", "Wants to build a startup", "Best project", "Team problem", "Team idea", "Team project URL", "Team demo URL", "Idea rating (1-5)", "Presentation skills (1-5)", "Deep knowledge of the idea (1-5)", "Role play (1-5)", "Volunteering interest", "Notes"];
     const rows = [];
-    const add = (t, p, lead) => { const e = ev.get(p.user_id) || {}; rows.push([t ? t.name : "(no team)", t ? t.code : "", t ? (lead ? "Lead" : "Member") : "", p.name, p.college, p.phone, p.email, p.github_url, p.linkedin_url, p.coding_level, p.wants_startup === true ? "Yes" : p.wants_startup === false ? "No" : "", p.best_project_url, t ? t.problem_statement : "", t ? t.idea : "", t ? t.project_url : "", t ? t.demo_url : "", e.idea_rating || "", e.presentation_rating || "", e.volunteer_interest ? "Yes" : "", e.notes || ""]); };
+    const add = (t, p, lead) => { const e = ev.get(p.user_id) || {}; rows.push([t ? t.name : "(no team)", t ? t.code : "", t ? (lead ? "Lead" : "Member") : "", p.name, p.college, p.phone, p.email, p.github_url, p.linkedin_url, p.coding_level, p.wants_startup === true ? "Yes" : p.wants_startup === false ? "No" : "", p.best_project_url, t ? t.problem_statement : "", t ? t.idea : "", t ? t.project_url : "", t ? t.demo_url : "", e.idea_rating || "", e.presentation_rating || "", e.knowledge_rating || "", e.roleplay_rating || "", e.volunteer_interest ? "Yes" : "", e.notes || ""]); };
     groups.forEach(({ team: t, people }) => people.forEach((p) => add(t, p, p.user_id === t.lead_id)));
     solo.forEach((p) => add(null, p, false));
     const csv = [head, ...rows].map((r) => r.map(cell).join(",")).join("\r\n");
@@ -314,6 +406,10 @@
     a.click();
     URL.revokeObjectURL(a.href);
   }
+
+  const closeMenu = () => { const m = document.getElementById("adm-menu"), b = document.getElementById("adm-dl"); if (m && !m.hidden) { m.hidden = true; b.setAttribute("aria-expanded", "false"); } };
+  document.addEventListener("click", (e) => { if (!e.target.closest(".adm-dl")) closeMenu(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") { closeMenu(); const b = document.getElementById("adm-dl"); if (b) b.focus(); } });
 
   boot();
 })();

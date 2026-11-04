@@ -92,6 +92,15 @@ alter table public.teams add column if not exists github_url text;
 alter table public.teams add column if not exists live_url text;
 -- A stage the admin reopened for just this team, so it can still work on it after the event moved on.
 alter table public.teams add column if not exists reopened_stage smallint;
+-- Set only when the LEAD ticks the team lock box. (The admin's "Move to next stage" also locks teams, but does not set this.)
+-- Teams that were already locked when this column was added count as locked by their lead.
+do $$
+begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'teams' and column_name = 'lead_locked_at') then
+    alter table public.teams add column lead_locked_at timestamptz;
+    update public.teams set lead_locked_at = locked_at where locked_at is not null;
+  end if;
+end $$;
 alter table public.teams drop constraint if exists teams_slides_url_check;
 alter table public.teams add constraint teams_slides_url_check
   check (slides_url is null or (slides_url ~* '^https://docs\.google\.com/presentation/d/[A-Za-z0-9_-]+' and char_length(slides_url) <= 500));
@@ -153,6 +162,13 @@ create table if not exists public.evaluations (
 alter table public.evaluations add column if not exists idea_rating smallint;
 alter table public.evaluations add column if not exists presentation_rating smallint;
 alter table public.evaluations add column if not exists volunteer_interest boolean not null default false;
+-- Local2Global scores each person on: presentation skills (presentation_rating), deep knowledge of the idea and role play.
+alter table public.evaluations add column if not exists knowledge_rating smallint;
+alter table public.evaluations add column if not exists roleplay_rating smallint;
+alter table public.evaluations drop constraint if exists evaluations_knowledge_rating_check;
+alter table public.evaluations add constraint evaluations_knowledge_rating_check check (knowledge_rating is null or knowledge_rating between 1 and 5);
+alter table public.evaluations drop constraint if exists evaluations_roleplay_rating_check;
+alter table public.evaluations add constraint evaluations_roleplay_rating_check check (roleplay_rating is null or roleplay_rating between 1 and 5);
 alter table public.evaluations drop constraint if exists evaluations_idea_rating_check;
 alter table public.evaluations add constraint evaluations_idea_rating_check check (idea_rating is null or idea_rating between 1 and 5);
 alter table public.evaluations drop constraint if exists evaluations_presentation_rating_check;
@@ -361,6 +377,7 @@ begin
     raise exception 'Your team is locked for good because the problem statement is already saved. Ask an admin if you need a change.';
   end if;
   update teams set locked_at = case when p_locked then coalesce(locked_at, now()) else null end,
+         lead_locked_at = case when p_locked then coalesce(lead_locked_at, now()) else null end,
          reopened_stage = case when p_locked and reopened_stage = 1 then null else reopened_stage end
    where id = t.id returning * into t;
   return t;
@@ -577,7 +594,7 @@ language plpgsql security definer set search_path = public as $$
 begin
   if not public.is_admin() then raise exception 'Admins only.'; end if;
   if p_stage = 1 then
-    update teams set locked_at = null, reopened_stage = 1 where id = p_team;
+    update teams set locked_at = null, lead_locked_at = null, reopened_stage = 1 where id = p_team;
   elsif p_stage = 2 then
     update teams set idea_confirmed_at = null, reopened_stage = 2 where id = p_team;
   elsif p_stage = 3 then
