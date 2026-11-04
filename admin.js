@@ -38,7 +38,7 @@
     host.innerHTML = '<p class="hk-note">Loading...</p>';
     const [r, t, ev] = await Promise.all([sb.from("registrations").select("event"), sb.from("teams").select("event, submitted_at"), sb.from("events").select("key, current_stage")]);
     const bad = [r, t, ev].find((x) => x.error);
-    if (bad) return notice(s(/function|schema cache|does not exist/i.test(bad.error.message) ? "Setup isn't finished. Run supabase/schema.sql in Supabase." : bad.error.message), "error");
+    if (bad) return notice(s(/function|schema cache|does not exist/i.test(bad.error.message) ? `Setup isn't finished. Run the latest supabase/schema.sql in Supabase. (Database said: ${bad.error.message})` : bad.error.message), "error");
     host.innerHTML = `<div class="adm-events">${Object.entries(EVENTS).map(([key, e]) => {
       const reg = r.data.filter((x) => x.event === key).length;
       const teams = t.data.filter((x) => x.event === key);
