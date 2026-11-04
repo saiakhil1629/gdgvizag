@@ -452,10 +452,10 @@ drop policy if exists team_checks_all on public.team_checks;
 create policy team_checks_all on public.team_checks for all to authenticated
   using (public.is_super()) with check (public.is_super());
 
--- Jury images live in a private bucket: 15 MB max, PNG/JPG/WebP only. One file per team: <team id>/jury-image
+-- Jury images live in a private bucket: 5 MB max, PNG/JPG/WebP only. One file per team: <team id>/jury-image
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('jury-images', 'jury-images', false, 15728640, array['image/png', 'image/jpeg', 'image/webp'])
-on conflict (id) do update set public = false, file_size_limit = 15728640,
+values ('jury-images', 'jury-images', false, 5242880, array['image/png', 'image/jpeg', 'image/webp'])
+on conflict (id) do update set public = false, file_size_limit = 5242880,
   allowed_mime_types = array['image/png', 'image/jpeg', 'image/webp'];
 
 drop policy if exists jury_images_read on storage.objects;

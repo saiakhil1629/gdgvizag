@@ -293,7 +293,7 @@
       github: /^https:\/\/(www\.)?github\.com\/[^/]+\/[^/]+/i,
       live: /^https?:\/\/.+/i,
     };
-    const BUCKET = "jury-images", MAX_IMG = 15 * 1024 * 1024, IMG_TYPES = ["image/png", "image/jpeg", "image/webp"];
+    const BUCKET = "jury-images", MAX_IMG = 5 * 1024 * 1024, IMG_TYPES = ["image/png", "image/jpeg", "image/webp"];
     const msgIn = (scope, text, kind = "error") => {
       const m = scope && scope.querySelector(".hk-msg");
       if (!m) return;
@@ -352,7 +352,7 @@
         : assetsDone ? `${readAssets}<p class="hk-note">Locked. Wait for the admin to open the next step.</p>`
         : isLead ? `<form id="hk-assets">
             <p>Make <b>one image</b> that shows your problem statement and your idea, using <b>Gemini</b>. This is the image the jury will see.</p>
-            <label class="field">Image (PNG, JPG or WebP, up to 15 MB)<input name="image" type="file" accept="image/png,image/jpeg,image/webp" ${dis}></label>
+            <label class="field">Image (PNG, JPG or WebP, up to 5 MB)<input name="image" type="file" accept="image/png,image/jpeg,image/webp" ${dis}></label>
             ${preview}
             <label class="field">Link to the Gemini chat that made the image<input name="gemini" type="url" placeholder="https://gemini.google.com/share/..." maxlength="500" required ${dis} value="${s(t.gemini_chat_url)}"></label>
             <small>In Gemini open the chat, press Share, and copy the link.</small>
@@ -455,11 +455,11 @@
           if (!f) return;
           const stop = (m) => { file.value = ""; msgIn(assets, m); };
           if (!IMG_TYPES.includes(f.type)) return stop("Use a PNG, JPG or WebP image.");
-          if (f.size > MAX_IMG) return stop(`That image is ${(f.size / 1048576).toFixed(1)} MB. The limit is 15 MB.`);
+          if (f.size > MAX_IMG) return stop(`That image is ${(f.size / 1048576).toFixed(1)} MB. The limit is 5 MB.`);
           try { const bmp = await createImageBitmap(f); if (bmp.close) bmp.close(); } catch { return stop("That file is not a readable image."); }
           msgIn(assets, "Uploading the image...", "ok");
           const { error } = await sb.storage.from(BUCKET).upload(`${t.id}/jury-image`, f, { upsert: true, contentType: f.type });
-          if (error) return stop(/size|exceed/i.test(error.message) ? "That image is too big. The limit is 15 MB." : friendly(error));
+          if (error) return stop(/size|exceed/i.test(error.message) ? "That image is too big. The limit is 5 MB." : friendly(error));
           state.uploadedFor = t.id;
           showLocal(f);
           msgIn(assets, "Image uploaded. Add the two links below and press Submit.", "ok");
