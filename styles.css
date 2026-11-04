@@ -1157,3 +1157,15 @@ body:not(.has-sfx) .sfx { display: none; }
 .adm-checkgrid .adm-checks { margin: 0; }
 .adm-score .adm-rate { justify-content: space-between; margin: 0; padding: 6px 0; }
 @media (max-width: 760px) { .adm-checkgrid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Admin: stage control */
+.adm-stagebox { margin: 14px 0; padding: 18px; border-radius: 22px; background: var(--surface); display: grid; gap: 10px; }
+.adm-stagebox h3 { margin: 0; }
+.adm-stagebox p { margin: 0; }
+.adm-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.adm-steps li { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 14px; background: color-mix(in srgb, var(--blue-c) 18%, var(--surface)); opacity: .65; font-size: 14px; }
+.adm-steps li b { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--surface); }
+.adm-steps li.done { opacity: 1; background: color-mix(in srgb, var(--blue-c) 35%, var(--surface)); }
+.adm-steps li.now { opacity: 1; outline: 2px solid var(--blue); background: color-mix(in srgb, var(--blue-c) 55%, var(--surface)); font-weight: 700; }
+.adm-flags { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+@media (max-width: 760px) { .adm-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

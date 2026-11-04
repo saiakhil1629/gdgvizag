@@ -17,7 +17,10 @@
     .filter(([, u]) => isUrl(u)).map(([n, u]) => `<p><b>${n}:</b> <a href="${s(u)}" target="_blank" rel="noopener noreferrer">${s(u)}</a></p>`).join("");
   const stageLabel = (t) => (!t.locked_at ? "Stage 1: team not locked" : !t.idea_confirmed_at ? "Stage 2: problem and idea" : !t.assets_locked_at ? "Stage 3: image and slides" : !t.submitted_at ? "Stage 4: GitHub and live site" : "All stages done");
   const BUCKET = "jury-images";
-  let me, data = { teams: [], members: [], profiles: [], evals: [], checks: [] };
+  const STAGES = ["Lock team", "Problem statement and idea", "Jury image and slides", "GitHub and live website"];
+  const SHORT = ["Team lock", "Problem and idea", "Image and slides", "GitHub and site"];
+  const filledStage = (t, no) => (no === 1 ? !!t.locked_at : no === 2 ? !!(t.problem_statement && t.idea) : no === 3 ? !!(t.jury_image_path && t.gemini_chat_url && t.slides_url) : !!t.submitted_at);
+  let me, data = { teams: [], members: [], profiles: [], evals: [], checks: [], event: null };
 
   async function boot() {
     if (!sb) return notice("Sign in isn't connected yet.");
@@ -33,8 +36,8 @@
   // Landing view: one card per event. Each opens that event's dashboard.
   async function home() {
     host.innerHTML = '<p class="hk-note">Loading...</p>';
-    const [r, t] = await Promise.all([sb.from("registrations").select("event"), sb.from("teams").select("event, submitted_at")]);
-    const bad = [r, t].find((x) => x.error);
+    const [r, t, ev] = await Promise.all([sb.from("registrations").select("event"), sb.from("teams").select("event, submitted_at"), sb.from("events").select("key, current_stage")]);
+    const bad = [r, t, ev].find((x) => x.error);
     if (bad) return notice(s(/function|schema cache|does not exist/i.test(bad.error.message) ? "Setup isn't finished. Run supabase/schema.sql in Supabase." : bad.error.message), "error");
     host.innerHTML = `<div class="adm-events">${Object.entries(EVENTS).map(([key, e]) => {
       const reg = r.data.filter((x) => x.event === key).length;
@@ -43,7 +46,7 @@
         <span class="hk-tag${e.warn ? " warn" : ""}">${e.badge}</span>
         <h3>${e.name}</h3>
         <p class="sub">${e.sub}</p>
-        <p class="adm-event-stats"><b>${reg}</b> registered &middot; <b>${teams.length}</b> teams &middot; <b>${teams.filter((x) => x.submitted_at).length}</b> projects submitted</p>
+        <p class="adm-event-stats"><b>${reg}</b> registered &middot; <b>${teams.length}</b> teams &middot; <b>${teams.filter((x) => x.submitted_at).length}</b> projects submitted${e.staged ? ` &middot; ${((ev.data.find((x) => x.key === key) || {}).current_stage || 1) > 4 ? "ended" : `stage <b>${(ev.data.find((x) => x.key === key) || {}).current_stage || 1}</b> of 4 open`}` : ""}</p>
         <button class="btn btn-sm" data-ev="${key}" type="button">Open dashboard</button>
       </article>`;
     }).join("")}</div>`;
@@ -56,18 +59,19 @@
   }
 
   async function load() {
-    const [t, m, r, p, e, c] = await Promise.all([
+    const [t, m, r, p, e, c, evr] = await Promise.all([
       sb.from("teams").select("*").eq("event", cur).order("created_at"),
       sb.from("team_members").select("user_id, team_id, joined_at").eq("event", cur).order("joined_at"),
       sb.from("registrations").select("user_id").eq("event", cur),
       sb.from("profiles").select("*").order("created_at"),
       sb.from("evaluations").select("*").eq("event", cur),
       sb.from("team_checks").select("*"),
+      sb.from("events").select("*").eq("key", cur).maybeSingle(),
     ]);
-    const bad = [t, m, r, p, e, c].find((x) => x.error);
+    const bad = [t, m, r, p, e, c, evr].find((x) => x.error);
     if (bad) { notice(s(bad.error.message), "error"); return false; }
     const registered = new Set(r.data.map((x) => x.user_id));
-    data = { teams: t.data, members: m.data, profiles: p.data.filter((x) => registered.has(x.user_id)), evals: e.data, checks: c.data };
+    data = { teams: t.data, members: m.data, profiles: p.data.filter((x) => registered.has(x.user_id)), evals: e.data, checks: c.data, event: evr.data };
     return true;
   }
 
@@ -99,13 +103,38 @@
   };
   const table = (rows) => `<div class="adm-scroll"><table class="adm-table"><thead><tr><th>Person</th><th>Contact</th><th>Links and level</th><th>Review</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 
+  // Stage control: the admin decides which stage is open for every team.
+  function stagePanel() {
+    if (!EVENTS[cur].staged || !data.event) return "";
+    const st = data.event.current_stage;
+    const nowFilled = st <= 4 ? data.teams.filter((t) => filledStage(t, st)).length : 0;
+    const steps = STAGES.map((name, i) => `<li class="${i + 1 < st ? "done" : i + 1 === st ? "now" : ""}"><b>${i + 1}</b><span>${name}</span></li>`).join("");
+    return `<section class="adm-stagebox" aria-labelledby="adm-stage-h"><h3 id="adm-stage-h">Stage control</h3>
+      <ol class="adm-steps">${steps}</ol>
+      <p id="adm-stage-now">${st > 4 ? "<b>The event has ended.</b> Nothing is open for teams." : `Stage <b>${st} of 4</b> is open for every team: ${STAGES[st - 1]}. <b>${nowFilled}</b> of <b>${data.teams.length}</b> teams have filled it.`}</p>
+      <div class="adm-tools"><button class="btn btn-sm" id="adm-next" type="button" ${st > 4 ? "disabled" : ""}>${st === 4 ? "Close final submissions (end the event)" : "Move to next stage"}</button><button class="btn btn-sm btn-tonal" id="adm-prev" type="button" ${st <= 1 ? "disabled" : ""}>Go back one stage</button></div>
+      <p class="adm-hint"><small>Moving on closes the current stage for every team, whether it filled it or not. A team cannot go back to a stage that closed unless you reopen it on its card.</small></p></section>`;
+  }
+  async function moveStage(next) {
+    const st = data.event.current_stage;
+    const msg = next
+      ? `Move to ${st === 4 ? "the end of the event" : "stage " + (st + 1)}?\n\nThis closes stage ${st} for EVERY team, whether they filled it or not. ${st === 1 ? "Every team is locked with the members it has." : st === 2 ? "Saved drafts count as confirmed." : st === 3 ? "Saved images and links are locked." : "Teams can no longer change their links."}`
+      : `Go back to stage ${st - 1}?\n\nOnly the stage number goes back. Teams that were locked stay locked (use Reopen on a team card for that).`;
+    if (!confirm(msg)) return;
+    const { error } = await sb.rpc(next ? "admin_next_stage" : "admin_back_stage", { p_event: cur });
+    if (error) { alert(error.message); return; }
+    refresh();
+  }
+
   // Staged submission, as the jury and admins see it: progress, text, image, links, manual checks and team tools.
   function stagedBlock(t) {
     const chk = data.checks.find((x) => x.team_id === t.id) || {};
     const box = (k, label) => `<label class="adm-chk"><input type="checkbox" data-check="${k}" ${chk[k] ? "checked" : ""}><span>${label}</span></label>`;
     const score = (k, label) => `<div class="adm-rate" data-sk="${k}" role="radiogroup" aria-label="${label}"><span class="adm-rl">${label}</span><span class="adm-rs">${[1, 2, 3, 4, 5].map((n) => `<label><input type="radio" name="${k}-${s(t.id)}" value="${n}" ${chk[k] === n ? "checked" : ""}><span aria-hidden="true">&#9733;</span><i class="sr">${n} ${n === 1 ? "star" : "stars"}</i></label>`).join("")}<button type="button" class="adm-clear" aria-label="Clear ${label}">Clear</button></span></div>`;
     const act = (a, label, extra = "") => `<button type="button" class="btn btn-sm btn-tonal adm-act" data-act="${a}" ${extra}>${label}</button>`;
-    return `<p><span class="hk-tag${t.submitted_at ? "" : " warn"}">${s(stageLabel(t))}</span></p>
+    const st = data.event ? data.event.current_stage : 1;
+    const flags = SHORT.map((name, i) => { const no = i + 1, ok = filledStage(t, no); const m = ok ? "" : no < st ? " warn" : no === st ? " warn" : " off"; return `<span class="hk-tag${m}">${no}. ${name}: ${ok ? "done" : no < st ? "missed" : no === st ? "open" : "-"}</span>`; }).join(" ");
+    return `<p class="adm-flags">${flags}</p>
       ${t.problem_statement ? `<p><b>Problem:</b> ${s(t.problem_statement)}</p><p><b>Idea:</b> ${s(t.idea)}</p>${t.idea_confirmed_at ? "" : "<p><small>Draft, not confirmed yet.</small></p>"}` : "<p><i>No problem statement yet.</i></p>"}
       ${t.jury_image_path ? `<div class="adm-img" data-path="${s(t.jury_image_path)}"><img alt="Jury image of ${s(t.name)}" hidden><small>Loading image...</small></div>` : "<p><i>No jury image yet.</i></p>"}
       ${demoLine(t)}
@@ -144,6 +173,7 @@
     const soloCard = soloShown.length ? `<article class="adm-team"><header><div><h3>Not in a team</h3><small>Registered, no team yet</small></div><span class="hk-tag warn">${solo.length}</span></header>${table(soloShown.map((p) => person(p, false, ev)).join(""))}</article>` : "";
     const done = data.evals.filter((x) => x.volunteer_interest).length;
     host.innerHTML = `<div class="adm-eventbar"><button class="btn btn-sm btn-tonal" id="adm-back" type="button">&larr; All events</button><h3>${EVENTS[cur].name} <span class="hk-tag${EVENTS[cur].warn ? " warn" : ""}">${EVENTS[cur].badge}</span></h3></div>
+      ${stagePanel()}
       <div class="adm-stats">
         <div><strong>${data.profiles.length}</strong><span>Registered</span></div>
         <div><strong>${data.teams.length}</strong><span>Teams</span></div>
@@ -159,6 +189,9 @@
     document.getElementById("adm-refresh").addEventListener("click", refresh);
     document.getElementById("adm-csv").addEventListener("click", exportCsv);
     document.getElementById("adm-teams-csv").addEventListener("click", exportTeamsCsv);
+    const nx = document.getElementById("adm-next"), pv = document.getElementById("adm-prev");
+    if (nx) nx.addEventListener("click", () => moveStage(true));
+    if (pv) pv.addEventListener("click", () => moveStage(false));
     host.querySelectorAll("tr[data-uid], .adm-score").forEach(paint);
     host.querySelectorAll(".adm-img[data-path]").forEach(async (b) => {
       const { data: d, error } = await sb.storage.from(BUCKET).createSignedUrl(b.dataset.path, 3600);

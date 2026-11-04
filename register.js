@@ -311,35 +311,45 @@
       const dis = closed ? "disabled" : "";
       const locked = !!t.locked_at, ideaDone = !!t.idea_confirmed_at, assetsDone = !!t.assets_locked_at, finalDone = !!t.submitted_at;
       const assetsSaved = !!(t.jury_image_path && t.gemini_chat_url && t.slides_url);
-      const stage = !locked ? 1 : !ideaDone ? 2 : !assetsDone ? 3 : 4;
+      // The admin opens one stage at a time for every team. A stage the admin reopened for this team also counts as open.
+      const cur = rule().current_stage || 1, reopened = t.reopened_stage || 0;
+      const stage = Math.min(cur, 4);
+      const isOpen = (no) => !closed && (cur === no || reopened === no);
+      const filled = { 1: locked, 2: !!(t.problem_statement && t.idea), 3: assetsSaved, 4: finalDone };
+      const mode = (no) => (isOpen(no) ? "now" : no > cur ? "wait" : filled[no] ? "done" : "missed");
       const stuck = !!t.problem_statement || ideaDone; // once the idea is saved the team lock can no longer be undone
-      const tag = (done, open) => (done ? '<span class="hk-tag">Done</span>' : open ? '<span class="hk-tag warn">In progress</span>' : '<span class="hk-tag off">Waiting</span>');
+      const TAGS = { now: '<span class="hk-tag warn">Open now</span>', done: '<span class="hk-tag">Done</span>', missed: '<span class="hk-tag warn">Missed</span>', wait: '<span class="hk-tag off">Not open yet</span>' };
       const people = state.roster.map((m) => `<li><span class="hk-av">${s((m.name || "?").trim()[0] || "?")}</span><div><b>${s(m.name)}${m.is_me ? " (you)" : ""}</b><small>${s(m.college)}</small></div>${m.is_lead ? '<span class="hk-tag">Lead</span>' : ""}</li>`).join("");
       const deadline = closes() ? `<p class="${closed ? "auth-msg is-warn" : "hk-note"}">${closed ? `Submissions closed on ${s(closesText())}.` : `Everything closes on <b>${s(closesText())}</b>.`}</p>` : "";
-      const stageBox = (no, title, done, open, body) => `<section class="hk-stage${done ? " done" : open ? " now" : ""}"><header><h4>Stage ${no}. ${title}</h4>${tag(done, open)}</header>${body}</section>`;
+      const stageBox = (no, title, body) => {
+        const m = mode(no);
+        return `<section class="hk-stage${m === "done" ? " done" : m === "now" ? " now" : ""}"><header><h4>Stage ${no}. ${title}</h4>${TAGS[m]}</header>${m === "wait" ? '<p class="hk-note">Not open yet. The admin will open this step.</p>' : body}</section>`;
+      };
 
       // Stage 1: team lock
-      const s1 = stageBox(1, "Lock your team", locked, !locked, isLead
-        ? `<label class="hk-confirm"><input type="checkbox" id="hk-lock" ${locked ? "checked" : ""} ${closed || (locked && stuck) ? "disabled" : ""}><span><b>Team lock</b> (${n} ${n === 1 ? "member" : "members"}). Fill your team with 1 to ${maxTeam()} members, then tick this box. Nobody can join or leave after that.${locked && stuck ? " Your team is locked for good now. Ask an admin if you must change it." : ""}</span></label>`
-        : `<p class="hk-note">${locked ? "Your team lead has locked the team." : "Waiting for your team lead to lock the team."}</p>`);
+      const s1 = stageBox(1, "Lock your team", isLead
+        ? `<label class="hk-confirm"><input type="checkbox" id="hk-lock" ${locked ? "checked" : ""} ${!isOpen(1) || (locked && stuck) ? "disabled" : ""}><span><b>Team lock</b> (${n} ${n === 1 ? "member" : "members"}). ${isOpen(1) ? `Fill your team with 1 to ${maxTeam()} members, then tick this box. Nobody can join or leave after that.` : "This step is closed. Your team was locked with the members it has."}</span></label>`
+        : `<p class="hk-note">${locked ? "Your team is locked." : "Waiting for your team lead to lock the team."}</p>`);
 
       // Stage 2: problem statement and idea
       const readIdea = `<p><b>Problem statement:</b> ${s(t.problem_statement)}</p><p><b>Idea:</b> ${s(t.idea)}</p>`;
-      const s2 = stageBox(2, "Problem statement and idea", ideaDone, locked && !ideaDone, !locked ? '<p class="hk-note">Opens when your team is locked.</p>'
-        : ideaDone ? `${readIdea}<p class="hk-note">Confirmed. It cannot be changed now.</p>`
+      const s2 = stageBox(2, "Problem statement and idea", !isOpen(2)
+        ? (filled[2] ? `${readIdea}<p class="hk-note">${ideaDone ? "Confirmed." : "Closed. Your saved draft was kept."}</p>` : '<p class="hk-note">Closed. Your team did not fill this step.</p>')
+        : ideaDone ? `${readIdea}<p class="hk-note">Confirmed. Wait for the admin to open the next step.</p>`
         : isLead ? `<form id="hk-idea">
             <label class="field">Problem statement<textarea name="problem" rows="3" maxlength="2000" required ${dis}>${s(t.problem_statement)}</textarea></label>
             <label class="field">Your idea<textarea name="idea" rows="4" maxlength="3000" required ${dis}>${s(t.idea)}</textarea></label>
             <p class="auth-msg hk-msg" role="status" aria-live="polite" hidden></p>
             <div class="cta"><button class="btn btn-tonal" type="submit" ${dis}>Save draft</button><button class="btn" type="button" id="hk-idea-confirm" ${dis}>Confirm problem statement and idea</button></div>
-            <small>After you confirm, the text cannot be changed and stage 3 opens.</small></form>`
+            <small>After you confirm, the text cannot be changed. The admin opens the next step for everyone.</small></form>`
         : (t.problem_statement ? `${readIdea}<p class="hk-note">Your team lead has not confirmed it yet.</p>` : "<p>Your team lead is writing the problem statement and idea.</p>"));
 
       // Stage 3: jury image + Gemini chat link + Google Slides link
       const preview = `<div class="hk-img" id="hk-imgbox" ${t.jury_image_path ? "" : "hidden"}><img id="hk-preview" alt="Jury image of the problem statement and idea" hidden><small id="hk-preview-note">Loading image...</small></div>`;
       const readAssets = `${preview}<p><b>Gemini chat:</b> ${linkTo(t.gemini_chat_url)}</p><p><b>Google Slides:</b> ${linkTo(t.slides_url)}</p>`;
-      const s3 = stageBox(3, "Jury image and slides", assetsDone, ideaDone && !assetsDone, !ideaDone ? '<p class="hk-note">Opens when the problem statement and idea are confirmed.</p>'
-        : assetsDone ? `${readAssets}<p class="hk-note">Locked.</p>`
+      const s3 = stageBox(3, "Jury image and slides", !isOpen(3)
+        ? (assetsSaved || t.jury_image_path ? `${readAssets}<p class="hk-note">${assetsDone ? "Locked." : "Closed."}</p>` : '<p class="hk-note">Closed. Your team did not fill this step.</p>')
+        : assetsDone ? `${readAssets}<p class="hk-note">Locked. Wait for the admin to open the next step.</p>`
         : isLead ? `<form id="hk-assets">
             <p>Make <b>one image</b> that shows your problem statement and your idea, using <b>Gemini</b>. This is the image the jury will see.</p>
             <label class="field">Image (PNG, JPG or WebP, up to 15 MB)<input name="image" type="file" accept="image/png,image/jpeg,image/webp" ${dis}></label>
@@ -350,24 +360,26 @@
             <small>In Google Slides press Share, set General access to "Anyone with the link" (Viewer), then copy the link.</small>
             <p class="auth-msg hk-msg" role="status" aria-live="polite" hidden></p>
             <div class="cta"><button class="btn btn-tonal" type="submit" ${dis}>Submit image and links</button><button class="btn" type="button" id="hk-assets-lock" ${assetsSaved && !closed ? "" : "disabled"}>Lock this stage</button></div>
-            <small>Lock opens after you have submitted. Locking moves your team to stage 4.</small></form>`
+            <small>Lock opens after you have submitted. The admin opens the next step for everyone.</small></form>`
         : (assetsSaved ? `${readAssets}<p class="hk-note">Your team lead has not locked this stage yet.</p>` : "<p>Your team lead is preparing the image and slides.</p>"));
 
       // Stage 4: GitHub + live website
       const warn = '<p class="auth-msg is-warn">Both links must open properly. A team whose link does not work will be removed.</p>';
-      const s4 = stageBox(4, "GitHub and live website", finalDone, assetsDone && !finalDone, !assetsDone ? '<p class="hk-note">Opens when stage 3 is locked.</p>'
+      const finalLinks = `<p><b>GitHub:</b> ${linkTo(t.github_url)}</p><p><b>Live website:</b> ${linkTo(t.live_url)}</p>`;
+      const s4 = stageBox(4, "GitHub and live website", !isOpen(4)
+        ? (finalDone ? `${finalLinks}<p class="hk-note">Closed.</p>` : '<p class="hk-note">Closed. Your team did not submit the links.</p>')
         : isLead ? `<form id="hk-final">${warn}
             <label class="field">GitHub repository link<input name="github" type="url" placeholder="https://github.com/your-name/your-repo" maxlength="500" required ${dis} value="${s(t.github_url)}"></label>
             <label class="field">Live website link<input name="live" type="url" placeholder="https://" maxlength="500" required ${dis} value="${s(t.live_url)}"></label>
             <p class="auth-msg hk-msg" role="status" aria-live="polite" hidden></p>
             <button class="btn" type="submit" ${dis}>${finalDone ? "Update links" : "Submit links"}</button></form>`
-        : `${warn}${finalDone ? `<p><b>GitHub:</b> ${linkTo(t.github_url)}</p><p><b>Live website:</b> ${linkTo(t.live_url)}</p>` : "<p>Your team lead has not submitted the links yet.</p>"}`);
+        : `${warn}${finalDone ? finalLinks : "<p>Your team lead has not submitted the links yet.</p>"}`);
 
       panel.innerHTML = `<div class="hk-step">
         <p class="hk-stepno">${isLead ? "You are the Team Lead" : "You are a Team Member"}</p>
         <h3>${s(t.name)}</h3>
         <div class="hk-code"><span>Team code</span><b id="hk-code">${s(t.code)}</b><button type="button" class="btn btn-sm btn-tonal" id="hk-copy">Copy</button></div>
-        <p class="hk-note">${n} of ${maxTeam()} members &middot; ${finalDone ? "All stages done" : `Stage ${stage} of 4`}</p>
+        <p class="hk-note">${n} of ${maxTeam()} members &middot; ${cur > 4 ? "The hackathon has ended" : `Stage ${stage} of 4 is open`}</p>
         <ul class="hk-people">${people}</ul>
         ${deadline}
         <div class="hk-stages">${s1}${s2}${s3}${s4}</div>
@@ -502,6 +514,13 @@
     });
     // Coming back from login, or following a #hackathon / #local2global link, opens the flow straight away.
     if (location.hash === `#${cfg.root}`) open();
+
+    // Staged events: notice when the admin opens the next step, without a manual refresh.
+    setInterval(async () => {
+      if (panel.hidden || document.hidden || !state.session || !state.team || !state.cfg || state.cfg.flow !== "staged") return;
+      const { data } = await sb.from("events").select("current_stage").eq("key", EVENT).maybeSingle();
+      if (data && data.current_stage !== state.cfg.current_stage) load();
+    }, 20000);
   }
 
   EVENTS.forEach(setup);

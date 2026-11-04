@@ -42,6 +42,7 @@ alter table public.profiles add constraint profiles_coding_level_check
 --   max_team          : most members a team may have (a team can be any size from 1 up to this)
 --   confirm_team      : the lead must tick "My team is final" (locks the team) before submitting
 --   flow              : 'simple' = one project form, 'staged' = team lock > problem+idea > image+slides > GitHub+live site
+--   current_stage     : staged events only: the stage the admin has opened for all teams (admin moves it forward)
 create table if not exists public.events (
   key text primary key,
   name text not null,
@@ -53,6 +54,10 @@ create table if not exists public.events (
 alter table public.events add column if not exists max_team int not null default 6;
 alter table public.events add column if not exists confirm_team boolean not null default false;
 alter table public.events add column if not exists flow text not null default 'simple';
+-- Staged events: the stage the admin has opened for every team (1 to 4; 5 = the event has ended). Only an admin changes it.
+alter table public.events add column if not exists current_stage smallint not null default 1;
+alter table public.events drop constraint if exists events_current_stage_check;
+alter table public.events add constraint events_current_stage_check check (current_stage between 1 and 5);
 insert into public.events (key, name, submissions_close, college_pattern, college_label, needs_demo) values
   ('p2p', 'Prompt to Product', null, null, null, false),
   ('l2g', 'Local2Global Hack', '2026-11-06 09:00:00+05:30', 'gayatri|gvp', 'Gayatri Vidya Parishad (GVP)', true)
@@ -85,6 +90,8 @@ alter table public.teams add column if not exists slides_url text;
 alter table public.teams add column if not exists assets_locked_at timestamptz;
 alter table public.teams add column if not exists github_url text;
 alter table public.teams add column if not exists live_url text;
+-- A stage the admin reopened for just this team, so it can still work on it after the event moved on.
+alter table public.teams add column if not exists reopened_stage smallint;
 alter table public.teams drop constraint if exists teams_slides_url_check;
 alter table public.teams add constraint teams_slides_url_check
   check (slides_url is null or (slides_url ~* '^https://docs\.google\.com/presentation/d/[A-Za-z0-9_-]+' and char_length(slides_url) <= 500));
@@ -261,6 +268,9 @@ begin
   if uid is null then raise exception 'Please log in first.'; end if;
   if not exists (select 1 from profiles where user_id = uid) then raise exception 'Save your details first.'; end if;
   perform ensure_registered(uid, p_event);
+  if exists (select 1 from events where key = p_event and flow = 'staged' and current_stage <> 1) then
+    raise exception 'Team building is closed. The hackathon has moved on to the next step.';
+  end if;
   if exists (select 1 from team_members where user_id = uid and event = p_event) then raise exception 'You are already in a team.'; end if;
   p_name := btrim(coalesce(p_name, ''));
   if char_length(p_name) < 2 or char_length(p_name) > 60 then raise exception 'Enter a team name (2 to 60 characters).'; end if;
@@ -286,6 +296,9 @@ begin
   select * into t from teams where code = upper(btrim(coalesce(p_code, ''))) for update;
   if not found then raise exception 'That team code was not found. Check it with your team lead.'; end if;
   perform ensure_registered(uid, t.event);
+  if exists (select 1 from events where key = t.event and flow = 'staged' and current_stage <> 1) then
+    raise exception 'Team building is closed. The hackathon has moved on to the next step.';
+  end if;
   if exists (select 1 from team_members where user_id = uid and event = t.event) then raise exception 'You are already in a team.'; end if;
   if t.locked_at is not null then raise exception 'This team has been confirmed by its lead and is not taking new members.'; end if;
   select * into e from events where key = t.event;
@@ -341,10 +354,14 @@ begin
   if e.submissions_close is not null and now() > e.submissions_close then
     raise exception 'The deadline for % has passed, so the team can no longer be changed.', e.name;
   end if;
+  if e.flow = 'staged' and e.current_stage <> 1 and coalesce(t.reopened_stage, 0) <> 1 then
+    raise exception 'The team lock step is closed.';
+  end if;
   if not p_locked and (t.problem_statement is not null or t.idea_confirmed_at is not null) then
     raise exception 'Your team is locked for good because the problem statement is already saved. Ask an admin if you need a change.';
   end if;
-  update teams set locked_at = case when p_locked then coalesce(locked_at, now()) else null end
+  update teams set locked_at = case when p_locked then coalesce(locked_at, now()) else null end,
+         reopened_stage = case when p_locked and reopened_stage = 1 then null else reopened_stage end
    where id = t.id returning * into t;
   return t;
 end $$;
@@ -421,25 +438,27 @@ create policy jury_images_read on storage.objects for select to authenticated
 drop policy if exists jury_images_insert on storage.objects;
 create policy jury_images_insert on storage.objects for insert to authenticated
   with check (bucket_id = 'jury-images' and exists (
-    select 1 from public.teams t
+    select 1 from public.teams t join public.events ev on ev.key = t.event
     where objects.name = t.id::text || '/jury-image' and t.lead_id = auth.uid()
-      and t.idea_confirmed_at is not null and t.assets_locked_at is null));
+      and (ev.current_stage = 3 or t.reopened_stage = 3) and t.assets_locked_at is null));
 drop policy if exists jury_images_update on storage.objects;
 create policy jury_images_update on storage.objects for update to authenticated
   using (bucket_id = 'jury-images' and exists (
-    select 1 from public.teams t
+    select 1 from public.teams t join public.events ev on ev.key = t.event
     where objects.name = t.id::text || '/jury-image' and t.lead_id = auth.uid()
-      and t.idea_confirmed_at is not null and t.assets_locked_at is null))
+      and (ev.current_stage = 3 or t.reopened_stage = 3) and t.assets_locked_at is null))
   with check (bucket_id = 'jury-images' and exists (
-    select 1 from public.teams t
+    select 1 from public.teams t join public.events ev on ev.key = t.event
     where objects.name = t.id::text || '/jury-image' and t.lead_id = auth.uid()
-      and t.idea_confirmed_at is not null and t.assets_locked_at is null));
+      and (ev.current_stage = 3 or t.reopened_stage = 3) and t.assets_locked_at is null));
 drop policy if exists jury_images_delete on storage.objects;
 create policy jury_images_delete on storage.objects for delete to authenticated
   using (bucket_id = 'jury-images' and public.is_admin());
 
--- Internal: the signed-in lead's team for a staged event, locked for update, with the deadline checked.
-create or replace function public.staged_team(p_event text) returns public.teams
+-- Internal: the signed-in lead's team for a staged event, locked for update, checked against the deadline and
+-- against the stage the admin has opened (p_stage). A stage the admin reopened for this team also counts.
+drop function if exists public.staged_team(text);
+create or replace function public.staged_team(p_event text, p_stage int) returns public.teams
 language plpgsql security definer set search_path = public as $$
 declare
   uid uuid := auth.uid();
@@ -453,17 +472,23 @@ begin
   if e.submissions_close is not null and now() > e.submissions_close then
     raise exception 'Submissions for % are closed.', e.name;
   end if;
+  if e.current_stage <> p_stage and coalesce(t.reopened_stage, 0) <> p_stage then
+    if e.current_stage < p_stage then
+      raise exception 'This step is not open yet. The admin will open it.';
+    else
+      raise exception 'This step is closed.';
+    end if;
+  end if;
   return t;
 end $$;
 
--- Stage 2: problem statement and idea (a draft can be saved many times until it is confirmed).
+-- Stage 2: problem statement and idea (a draft can be saved many times until it is confirmed or the stage closes).
 create or replace function public.save_idea(p_problem text, p_idea text, p_event text default 'l2g') returns public.teams
 language plpgsql security definer set search_path = public as $$
 declare
   t public.teams;
 begin
-  t := staged_team(p_event);
-  if t.locked_at is null then raise exception 'Lock your team first: tick "My team is final".'; end if;
+  t := staged_team(p_event, 2);
   if t.idea_confirmed_at is not null then raise exception 'The problem statement and idea are already confirmed.'; end if;
   p_problem := btrim(coalesce(p_problem, ''));
   p_idea := btrim(coalesce(p_idea, ''));
@@ -480,10 +505,11 @@ language plpgsql security definer set search_path = public as $$
 declare
   t public.teams;
 begin
-  t := staged_team(p_event);
-  if t.locked_at is null then raise exception 'Lock your team first: tick "My team is final".'; end if;
+  t := staged_team(p_event, 2);
   if t.problem_statement is null or t.idea is null then raise exception 'Save your problem statement and idea first.'; end if;
-  update teams set idea_confirmed_at = coalesce(idea_confirmed_at, now()) where id = t.id returning * into t;
+  update teams set idea_confirmed_at = coalesce(idea_confirmed_at, now()),
+         reopened_stage = case when reopened_stage = 2 then null else reopened_stage end
+   where id = t.id returning * into t;
   return t;
 end $$;
 
@@ -493,8 +519,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   t public.teams;
 begin
-  t := staged_team(p_event);
-  if t.idea_confirmed_at is null then raise exception 'Confirm your problem statement and idea first.'; end if;
+  t := staged_team(p_event, 3);
   if t.assets_locked_at is not null then raise exception 'The image and links are already locked.'; end if;
   p_gemini := btrim(coalesce(p_gemini, ''));
   p_slides := btrim(coalesce(p_slides, ''));
@@ -518,22 +543,23 @@ language plpgsql security definer set search_path = public as $$
 declare
   t public.teams;
 begin
-  t := staged_team(p_event);
+  t := staged_team(p_event, 3);
   if t.jury_image_path is null or t.gemini_chat_url is null or t.slides_url is null then
     raise exception 'Submit the image, the Gemini link and the Slides link first.';
   end if;
-  update teams set assets_locked_at = coalesce(assets_locked_at, now()) where id = t.id returning * into t;
+  update teams set assets_locked_at = coalesce(assets_locked_at, now()),
+         reopened_stage = case when reopened_stage = 3 then null else reopened_stage end
+   where id = t.id returning * into t;
   return t;
 end $$;
 
--- Stage 4: the GitHub repository and the live website. Both must work. Editable until the deadline.
+-- Stage 4: the GitHub repository and the live website. Both must work. Editable while stage 4 is open.
 create or replace function public.save_final_links(p_github text, p_live text, p_event text default 'l2g') returns public.teams
 language plpgsql security definer set search_path = public as $$
 declare
   t public.teams;
 begin
-  t := staged_team(p_event);
-  if t.assets_locked_at is null then raise exception 'Lock the image and links first.'; end if;
+  t := staged_team(p_event, 4);
   p_github := btrim(coalesce(p_github, ''));
   p_live := btrim(coalesce(p_live, ''));
   if p_github !~* '^https://(www\.)?github\.com/[^/]+/[^/]+' then
@@ -545,20 +571,61 @@ begin
   return t;
 end $$;
 
--- Admin tools. Reopen a stage so the lead can edit again (2 = problem+idea, 3 = image+links, 1 = the team itself).
+-- Admin: reopen one stage for one team (the lead can edit it again even though the event moved on).
 create or replace function public.admin_reopen_stage(p_team uuid, p_stage int) returns void
 language plpgsql security definer set search_path = public as $$
 begin
   if not public.is_admin() then raise exception 'Admins only.'; end if;
   if p_stage = 1 then
-    update teams set locked_at = null, idea_confirmed_at = null, assets_locked_at = null where id = p_team;
+    update teams set locked_at = null, reopened_stage = 1 where id = p_team;
   elsif p_stage = 2 then
-    update teams set idea_confirmed_at = null, assets_locked_at = null where id = p_team;
+    update teams set idea_confirmed_at = null, reopened_stage = 2 where id = p_team;
   elsif p_stage = 3 then
-    update teams set assets_locked_at = null where id = p_team;
+    update teams set assets_locked_at = null, reopened_stage = 3 where id = p_team;
   else
     raise exception 'Stage must be 1, 2 or 3.';
   end if;
+end $$;
+
+-- Admin: move the whole event to the next stage. The stage that is closing is locked for EVERY team, filled or not:
+--   1 closes: every team is locked with the members it has.   2 closes: a saved draft counts as confirmed.
+--   3 closes: the saved image and links are locked.           4 closes: the event ends (current_stage = 5).
+create or replace function public.admin_next_stage(p_event text) returns public.events
+language plpgsql security definer set search_path = public as $$
+declare
+  e public.events;
+begin
+  if not public.is_admin() then raise exception 'Admins only.'; end if;
+  select * into e from events where key = p_event for update;
+  if not found then raise exception 'That event does not exist.'; end if;
+  if e.flow <> 'staged' then raise exception 'This event does not have stages.'; end if;
+  if e.current_stage >= 5 then raise exception 'The event has already ended.'; end if;
+  if e.current_stage = 1 then
+    update teams set locked_at = coalesce(locked_at, now()) where event = p_event;
+  elsif e.current_stage = 2 then
+    update teams set idea_confirmed_at = coalesce(idea_confirmed_at, now())
+     where event = p_event and problem_statement is not null and idea is not null;
+  elsif e.current_stage = 3 then
+    update teams set assets_locked_at = coalesce(assets_locked_at, now()) where event = p_event;
+  end if;
+  update events set current_stage = current_stage + 1 where key = p_event returning * into e;
+  return e;
+end $$;
+
+-- Admin: undo a Move by mistake. Only the stage number goes back; nothing that was locked is unlocked
+-- (use "Reopen" on a team for that).
+create or replace function public.admin_back_stage(p_event text) returns public.events
+language plpgsql security definer set search_path = public as $$
+declare
+  e public.events;
+begin
+  if not public.is_admin() then raise exception 'Admins only.'; end if;
+  select * into e from events where key = p_event for update;
+  if not found then raise exception 'That event does not exist.'; end if;
+  if e.flow <> 'staged' then raise exception 'This event does not have stages.'; end if;
+  if e.current_stage <= 1 then raise exception 'The event is already at stage 1.'; end if;
+  update events set current_stage = current_stage - 1 where key = p_event returning * into e;
+  return e;
 end $$;
 
 -- Admin: delete a team so its people can start again (they stay registered). p_remove = true also unregisters them.
@@ -591,5 +658,6 @@ grant execute on function
   public.save_idea(text, text, text), public.confirm_idea(text), public.save_assets(text, text, text, text),
   public.lock_assets(text), public.save_final_links(text, text, text),
   public.admin_reopen_stage(uuid, int), public.admin_reset_team(uuid, boolean),
+  public.admin_next_stage(text), public.admin_back_stage(text),
   public.submit_project(text, text, text, text, text), public.leave_team(text), public.my_team_roster(text)
   to authenticated;
