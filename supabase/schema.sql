@@ -780,3 +780,6 @@ grant execute on function
   public.admin_next_stage(text), public.admin_back_stage(text),
   public.submit_project(text, text, text, text, text), public.leave_team(text), public.my_team_roster(text)
   to authenticated;
+
+-- Make the API pick up the new tables and functions straight away (otherwise Supabase can say "not found in the schema cache").
+notify pgrst, 'reload schema';
