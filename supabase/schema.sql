@@ -63,6 +63,13 @@ insert into public.events (key, name, submissions_close, college_pattern, colleg
   ('l2g', 'Local2Global Hack', '2026-11-06 09:00:00+05:30', 'gayatri|gvp', 'Gayatri Vidya Parishad (GVP)', true)
 on conflict (key) do nothing;
 -- Local2Global: teams of 1 to 5, confirmed by the lead. (Runs once; later edits in the Table Editor are kept.)
+-- Team building switch: false = nobody can create or join a team. Prompt to Product is closed (set once, when the column is first added).
+do $$ begin
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'events' and column_name = 'team_building_open') then
+    alter table public.events add column team_building_open boolean not null default true;
+    update public.events set team_building_open = false where key = 'p2p';
+  end if;
+end $$;
 update public.events set max_team = 5, confirm_team = true where key = 'l2g' and confirm_team = false;
 update public.events set flow = 'staged' where key = 'l2g' and flow = 'simple';
 
@@ -294,6 +301,9 @@ begin
   if uid is null then raise exception 'Please log in first.'; end if;
   if not exists (select 1 from profiles where user_id = uid) then raise exception 'Save your details first.'; end if;
   perform ensure_registered(uid, p_event);
+  if exists (select 1 from events where key = p_event and not team_building_open) then
+    raise exception 'Team building is closed for this event.';
+  end if;
   if exists (select 1 from events where key = p_event and flow = 'staged' and current_stage <> 1) then
     raise exception 'Team building is closed. The hackathon has moved on to the next step.';
   end if;
@@ -322,6 +332,9 @@ begin
   select * into t from teams where code = upper(btrim(coalesce(p_code, ''))) for update;
   if not found then raise exception 'That team code was not found. Check it with your team lead.'; end if;
   perform ensure_registered(uid, t.event);
+  if exists (select 1 from events where key = t.event and not team_building_open) then
+    raise exception 'Team building is closed for this event.';
+  end if;
   if exists (select 1 from events where key = t.event and flow = 'staged' and current_stage <> 1) then
     raise exception 'Team building is closed. The hackathon has moved on to the next step.';
   end if;

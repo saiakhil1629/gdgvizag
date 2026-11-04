@@ -9,7 +9,7 @@
 
   const EVENTS = [
     { event: "p2p", root: "hackathon", panel: "hk-panel", open: "hk-open", meta: "hk-meta", feed: /prompt to product/i,
-      openLabel: "Register for this event", closeLabel: "Hide registration" },
+      openLabel: "Team building closed", closeLabel: "Hide this message", teamsClosed: true },
     { event: "l2g", root: "local2global", panel: "l2g-panel", open: "l2g-open",
       openLabel: "Build your team and submit here", closeLabel: "Hide team builder" },
   ];
@@ -87,8 +87,18 @@
       render();
     }
 
+    // Team building can be closed for an event (cfg.teamsClosed). Teams that already exist stay visible.
+    function renderClosed() {
+      const next = encodeURIComponent(here);
+      panel.innerHTML = `<div class="hk-step"><h3>Team building is closed</h3>
+        <p>Team building for ${s(eventName())} is closed. No new teams or members can be added.</p>
+        ${state.session ? "" : `<p class="hk-note">Already in a team? Log in to see it.</p><div class="cta"><a class="btn btn-tonal" href="login.html?next=${next}">Log in</a></div>`}</div>`;
+    }
+
     function render() {
+      if (cfg.teamsClosed && !state.session) return renderClosed();
       if (!state.session) return renderLogin();
+      if (cfg.teamsClosed && !state.team) { renderClosed(); const w = document.createElement("p"); w.className = "hk-who"; w.textContent = `Logged in as ${state.session.user.email}`; panel.prepend(w); return; }
       if (!state.profile || !state.registered || state.editing) renderProfile();
       else if (!state.team) renderRole();
       else if (rule().flow === "staged") renderStaged();
