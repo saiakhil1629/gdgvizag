@@ -146,6 +146,8 @@ on conflict do nothing;
 create table if not exists public.admins (
   email text primary key
 );
+alter table public.admins add column if not exists added_at timestamptz not null default now();
+alter table public.admins add column if not exists added_by uuid;
 
 create table if not exists public.evaluations (
   user_id uuid primary key references public.profiles (user_id) on delete cascade,
@@ -178,17 +180,25 @@ alter table public.evaluations add column if not exists event text not null defa
 alter table public.evaluations drop constraint if exists evaluations_pkey;
 alter table public.evaluations add primary key (user_id, event);
 
--- Add admins here. Add more rows any time.
-insert into public.admins (email) values ('saiakhil1629@gmail.com'), ('karanamkarthik2004@gmail.com') on conflict do nothing;
+-- Normal admins. The super admin adds and removes more from the Admins panel on the admin page (no SQL needed).
+-- (saiakhil1629@gmail.com is the super admin and does not need a row here.)
+insert into public.admins (email) values ('karanamkarthik2004@gmail.com') on conflict do nothing;
 
 -- ---------------------------------------------------------------- helpers
 -- (Older versions of these helpers are dropped first; the teams policy that used my_team_id() is dropped before it.)
 drop policy if exists teams_select on public.teams;
 drop function if exists public.my_team_id();
 
+-- The super admin. To change it, change this email and run the file again.
+create or replace function public.is_super() returns boolean
+language sql stable security definer set search_path = public as $$
+  select lower(coalesce(auth.jwt() ->> 'email', '')) = 'saiakhil1629@gmail.com';
+$$;
+
+-- Any admin: the super admin, or an email in the admins table (added by the super admin on the admin page).
 create or replace function public.is_admin() returns boolean
 language sql stable security definer set search_path = public as $$
-  select exists (
+  select public.is_super() or exists (
     select 1 from public.admins a
     where lower(a.email) = lower(coalesce(auth.jwt() ->> 'email', ''))
   );
@@ -440,7 +450,7 @@ alter table public.team_checks add constraint team_checks_website_rating_check c
 alter table public.team_checks enable row level security;
 drop policy if exists team_checks_all on public.team_checks;
 create policy team_checks_all on public.team_checks for all to authenticated
-  using (public.is_admin()) with check (public.is_admin());
+  using (public.is_super()) with check (public.is_super());
 
 -- Jury images live in a private bucket: 15 MB max, PNG/JPG/WebP only. One file per team: <team id>/jury-image
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -470,7 +480,7 @@ create policy jury_images_update on storage.objects for update to authenticated
       and (ev.current_stage = 3 or t.reopened_stage = 3) and t.assets_locked_at is null));
 drop policy if exists jury_images_delete on storage.objects;
 create policy jury_images_delete on storage.objects for delete to authenticated
-  using (bucket_id = 'jury-images' and public.is_admin());
+  using (bucket_id = 'jury-images' and public.is_super());
 
 -- Internal: the signed-in lead's team for a staged event, locked for update, checked against the deadline and
 -- against the stage the admin has opened (p_stage). A stage the admin reopened for this team also counts.
@@ -592,7 +602,7 @@ end $$;
 create or replace function public.admin_reopen_stage(p_team uuid, p_stage int) returns void
 language plpgsql security definer set search_path = public as $$
 begin
-  if not public.is_admin() then raise exception 'Admins only.'; end if;
+  if not public.is_super() then raise exception 'Only the super admin can do this.'; end if;
   if p_stage = 1 then
     update teams set locked_at = null, lead_locked_at = null, reopened_stage = 1 where id = p_team;
   elsif p_stage = 2 then
@@ -612,7 +622,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   e public.events;
 begin
-  if not public.is_admin() then raise exception 'Admins only.'; end if;
+  if not public.is_super() then raise exception 'Only the super admin can do this.'; end if;
   select * into e from events where key = p_event for update;
   if not found then raise exception 'That event does not exist.'; end if;
   if e.flow <> 'staged' then raise exception 'This event does not have stages.'; end if;
@@ -636,7 +646,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   e public.events;
 begin
-  if not public.is_admin() then raise exception 'Admins only.'; end if;
+  if not public.is_super() then raise exception 'Only the super admin can do this.'; end if;
   select * into e from events where key = p_event for update;
   if not found then raise exception 'That event does not exist.'; end if;
   if e.flow <> 'staged' then raise exception 'This event does not have stages.'; end if;
@@ -652,14 +662,105 @@ language plpgsql security definer set search_path = public as $$
 declare
   t public.teams;
 begin
-  if not public.is_admin() then raise exception 'Admins only.'; end if;
+  if not public.is_super() then raise exception 'Only the super admin can do this.'; end if;
   select * into t from teams where id = p_team for update;
   if not found then return; end if;
   if p_remove then
     delete from evaluations where event = t.event and user_id in (select user_id from team_members where team_id = t.id);
+    delete from person_scores where event = t.event and user_id in (select user_id from team_members where team_id = t.id);
     delete from registrations where event = t.event and user_id in (select user_id from team_members where team_id = t.id);
   end if;
   delete from teams where id = t.id; -- members and checks go with it
+end $$;
+
+-- ---------------------------------------------------------------- judges' scores (Local2Global)
+-- Every admin scores on their own: one row per judge. A normal admin only ever sees their own rows;
+-- the super admin sees every judge's rows (and the page shows the average).
+create table if not exists public.team_scores (
+  team_id uuid not null references public.teams (id) on delete cascade,
+  judge_id uuid not null,
+  judge_email text not null default lower(coalesce(auth.jwt() ->> 'email', '')),
+  idea_rating smallint check (idea_rating between 1 and 5),
+  presentation_rating smallint check (presentation_rating between 1 and 5),
+  website_rating smallint check (website_rating between 1 and 5),
+  updated_at timestamptz not null default now(),
+  primary key (team_id, judge_id)
+);
+create table if not exists public.person_scores (
+  user_id uuid not null references public.profiles (user_id) on delete cascade,
+  event text not null references public.events (key),
+  judge_id uuid not null,
+  judge_email text not null default lower(coalesce(auth.jwt() ->> 'email', '')),
+  presentation_rating smallint check (presentation_rating between 1 and 5),
+  knowledge_rating smallint check (knowledge_rating between 1 and 5),
+  roleplay_rating smallint check (roleplay_rating between 1 and 5),
+  volunteer_interest boolean not null default false,
+  notes text check (char_length(notes) <= 2000),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, event, judge_id)
+);
+alter table public.team_scores enable row level security;
+alter table public.person_scores enable row level security;
+drop policy if exists team_scores_select on public.team_scores;
+create policy team_scores_select on public.team_scores for select to authenticated
+  using (public.is_super() or (public.is_admin() and judge_id = auth.uid()));
+drop policy if exists team_scores_insert on public.team_scores;
+create policy team_scores_insert on public.team_scores for insert to authenticated
+  with check (public.is_admin() and judge_id = auth.uid());
+drop policy if exists team_scores_update on public.team_scores;
+create policy team_scores_update on public.team_scores for update to authenticated
+  using (public.is_admin() and judge_id = auth.uid()) with check (public.is_admin() and judge_id = auth.uid());
+drop policy if exists team_scores_delete on public.team_scores;
+create policy team_scores_delete on public.team_scores for delete to authenticated
+  using (public.is_super() or (public.is_admin() and judge_id = auth.uid()));
+drop policy if exists person_scores_select on public.person_scores;
+create policy person_scores_select on public.person_scores for select to authenticated
+  using (public.is_super() or (public.is_admin() and judge_id = auth.uid()));
+drop policy if exists person_scores_insert on public.person_scores;
+create policy person_scores_insert on public.person_scores for insert to authenticated
+  with check (public.is_admin() and judge_id = auth.uid());
+drop policy if exists person_scores_update on public.person_scores;
+create policy person_scores_update on public.person_scores for update to authenticated
+  using (public.is_admin() and judge_id = auth.uid()) with check (public.is_admin() and judge_id = auth.uid());
+drop policy if exists person_scores_delete on public.person_scores;
+create policy person_scores_delete on public.person_scores for delete to authenticated
+  using (public.is_super() or (public.is_admin() and judge_id = auth.uid()));
+
+-- ---------------------------------------------------------------- managing admins (super admin only)
+-- The list: the super admin first, then everyone added. signed_up = that email already has an account on the site.
+create or replace function public.list_admins()
+returns table (email text, is_super boolean, signed_up boolean, added_at timestamptz)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if not public.is_super() then raise exception 'Only the super admin can do this.'; end if;
+  return query
+    select 'saiakhil1629@gmail.com'::text, true,
+           exists (select 1 from auth.users u where lower(u.email) = 'saiakhil1629@gmail.com'), null::timestamptz
+    union all
+    (select lower(a.email), false, exists (select 1 from auth.users u where lower(u.email) = lower(a.email)), a.added_at
+       from public.admins a where lower(a.email) <> 'saiakhil1629@gmail.com' order by a.added_at);
+end $$;
+
+-- Add a normal admin by email. They do not need an account yet: once they sign up or log in with that email they are an admin.
+create or replace function public.add_admin(p_email text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_super() then raise exception 'Only the super admin can do this.'; end if;
+  p_email := lower(btrim(coalesce(p_email, '')));
+  if p_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' or char_length(p_email) > 200 then
+    raise exception 'Enter a valid email address.';
+  end if;
+  if p_email = 'saiakhil1629@gmail.com' then raise exception 'That is the super admin already.'; end if;
+  insert into admins (email, added_by) values (p_email, auth.uid()) on conflict (email) do nothing;
+end $$;
+
+create or replace function public.remove_admin(p_email text) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_super() then raise exception 'Only the super admin can do this.'; end if;
+  p_email := lower(btrim(coalesce(p_email, '')));
+  if p_email = 'saiakhil1629@gmail.com' then raise exception 'The super admin cannot be removed.'; end if;
+  delete from admins where lower(email) = p_email;
 end $$;
 
 -- ---------------------------------------------------------------- permissions
@@ -668,9 +769,10 @@ revoke execute on all functions in schema public from public, anon;
 grant select, insert, update on public.profiles to authenticated;
 grant select on public.teams, public.team_members, public.events, public.registrations to authenticated;
 grant select, insert, update, delete on public.evaluations to authenticated;
-grant select, insert, update, delete on public.team_checks to authenticated;
+grant select, insert, update, delete on public.team_checks, public.team_scores, public.person_scores to authenticated;
 grant execute on function
-  public.is_admin(), public.my_team_ids(), public.register_for_event(text),
+  public.is_admin(), public.is_super(), public.list_admins(), public.add_admin(text), public.remove_admin(text),
+  public.my_team_ids(), public.register_for_event(text),
   public.create_team(text, text), public.join_team(text), public.lock_team(boolean, text),
   public.save_idea(text, text, text), public.confirm_idea(text), public.save_assets(text, text, text, text),
   public.lock_assets(text), public.save_final_links(text, text, text),
