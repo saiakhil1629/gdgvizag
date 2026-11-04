@@ -783,3 +783,8 @@ grant execute on function
 
 -- Make the API pick up the new tables and functions straight away (otherwise Supabase can say "not found in the schema cache").
 notify pgrst, 'reload schema';
+
+-- If you see this row in the result area, every part of this file was applied.
+select 'Done: the schema is up to date' as status,
+       (select count(*) from public.team_scores) as team_scores_rows,
+       (select count(*) from public.admins) as normal_admins;
