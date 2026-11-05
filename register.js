@@ -299,7 +299,7 @@
     // ---- Step-by-step submission (events whose flow is "staged"): 1 team lock, 2 problem + idea, 3 image + slides, 4 GitHub + live site.
     const RX = {
       gemini: /^https:\/\/(gemini\.google\.com|g\.co)\/.+/i,
-      slides: /^https:\/\/docs\.google\.com\/presentation\/d\/[A-Za-z0-9_-]+/i,
+      slides: /^https?:\/\/[^\s\/$.?#][^\s]*\.[^\s]{2,}$/i,
       github: /^https:\/\/(www\.)?github\.com\/[^/]+\/[^/]+/i,
       live: /^https?:\/\/.+/i,
     };
@@ -320,7 +320,7 @@
       const closed = isClosed();
       const dis = closed ? "disabled" : "";
       const locked = !!t.locked_at, ideaDone = !!t.idea_confirmed_at, assetsDone = !!t.assets_locked_at, finalDone = !!t.submitted_at;
-      const assetsSaved = !!(t.jury_image_path && t.gemini_chat_url && t.slides_url);
+      const assetsSaved = !!(t.jury_image_path && t.slides_url);
       // The admin opens one stage at a time for every team. A stage the admin reopened for this team also counts as open.
       const cur = rule().current_stage || 1, reopened = t.reopened_stage || 0;
       const stage = Math.min(cur, 4);
@@ -354,9 +354,9 @@
             <small>After you confirm, the text cannot be changed. The admin opens the next step for everyone.</small></form>`
         : (t.problem_statement ? `${readIdea}<p class="hk-note">Your team lead has not confirmed it yet.</p>` : "<p>Your team lead is writing the problem statement and idea.</p>"));
 
-      // Stage 3: jury image + Gemini chat link + Google Slides link
+      // Stage 3: jury image + presentation link (any URL)
       const preview = `<div class="hk-img" id="hk-imgbox" ${t.jury_image_path ? "" : "hidden"}><img id="hk-preview" alt="Jury image of the problem statement and idea" hidden><small id="hk-preview-note">Loading image...</small></div>`;
-      const readAssets = `${preview}<p><b>Gemini chat:</b> ${linkTo(t.gemini_chat_url)}</p><p><b>Google Slides:</b> ${linkTo(t.slides_url)}</p>`;
+      const readAssets = `${preview}<p><b>Presentation (PPT) link:</b> ${linkTo(t.slides_url)}</p>`;
       const s3 = stageBox(3, "Jury image and slides", !isOpen(3)
         ? (assetsSaved || t.jury_image_path ? `${readAssets}<p class="hk-note">${assetsDone ? "Locked." : "Closed."}</p>` : '<p class="hk-note">Closed. Your team did not fill this step.</p>')
         : assetsDone ? `${readAssets}<p class="hk-note">Locked. Wait for the admin to open the next step.</p>`
@@ -364,12 +364,10 @@
             <p>Make <b>one image</b> that shows your problem statement and your idea, using <b>Gemini</b>. This is the image the jury will see.</p>
             <label class="field">Image (PNG, JPG or WebP, up to 5 MB)<input name="image" type="file" accept="image/png,image/jpeg,image/webp" ${dis}></label>
             ${preview}
-            <label class="field">Link to the Gemini chat that made the image<input name="gemini" type="url" placeholder="https://gemini.google.com/share/..." maxlength="500" required ${dis} value="${s(t.gemini_chat_url)}"></label>
-            <small>In Gemini open the chat, press Share, and copy the link.</small>
-            <label class="field">Google Slides link (view link)<input name="slides" type="url" placeholder="https://docs.google.com/presentation/d/..." maxlength="500" required ${dis} value="${s(t.slides_url)}"></label>
-            <small>In Google Slides press Share, set General access to "Anyone with the link" (Viewer), then copy the link.</small>
+            <label class="field">Link to your presentation (PPT)<input name="slides" type="url" placeholder="https://..." maxlength="500" required ${dis} value="${s(t.slides_url)}"></label>
+            <small>Any link to your presentation works (Google Slides, Drive, PowerPoint, Canva...). Make sure anyone with the link can open it.</small>
             <p class="auth-msg hk-msg" role="status" aria-live="polite" hidden></p>
-            <div class="cta"><button class="btn btn-tonal" type="submit" ${dis}>Submit image and links</button><button class="btn" type="button" id="hk-assets-lock" ${assetsSaved && !closed ? "" : "disabled"}>Lock this stage</button></div>
+            <div class="cta"><button class="btn btn-tonal" type="submit" ${dis}>Submit image and slides</button><button class="btn" type="button" id="hk-assets-lock" ${assetsSaved && !closed ? "" : "disabled"}>Lock this stage</button></div>
             <small>Lock opens after you have submitted. The admin opens the next step for everyone.</small></form>`
         : (assetsSaved ? `${readAssets}<p class="hk-note">Your team lead has not locked this stage yet.</p>` : "<p>Your team lead is preparing the image and slides.</p>"));
 
@@ -472,16 +470,15 @@
           if (error) return stop(/size|exceed/i.test(error.message) ? "That image is too big. The limit is 5 MB." : friendly(error));
           state.uploadedFor = t.id;
           showLocal(f);
-          msgIn(assets, "Image uploaded. Add the two links below and press Submit.", "ok");
+          msgIn(assets, "Image uploaded. Add your presentation link below and press Submit.", "ok");
         });
         assets.addEventListener("submit", async (e) => {
           e.preventDefault();
           const btn = assets.querySelector("button[type=submit]"), label = btn.textContent;
           if (!t.jury_image_path && state.uploadedFor !== t.id) return msgIn(assets, "Upload your image first.");
-          if (!RX.gemini.test(assets.gemini.value.trim())) return msgIn(assets, "Paste the share link of the Gemini chat (it starts with https://gemini.google.com/).");
-          if (!RX.slides.test(assets.slides.value.trim())) return msgIn(assets, "Paste a Google Slides link (it starts with https://docs.google.com/presentation/d/).");
+          if (!RX.slides.test(assets.slides.value.trim())) return msgIn(assets, "Paste a link to your presentation (it starts with https://).");
           busy(btn, true, label);
-          const { error } = await sb.rpc("save_assets", { p_image_path: `${t.id}/jury-image`, p_gemini: assets.gemini.value, p_slides: assets.slides.value, p_event: EVENT });
+          const { error } = await sb.rpc("save_assets", { p_image_path: `${t.id}/jury-image`, p_gemini: null, p_slides: assets.slides.value, p_event: EVENT });
           if (error) { msgIn(assets, friendly(error)); busy(btn, false, label); return; }
           await load();
           flash("#hk-assets", "Submitted. Press Lock this stage when you are sure.");

@@ -110,7 +110,7 @@ begin
 end $$;
 alter table public.teams drop constraint if exists teams_slides_url_check;
 alter table public.teams add constraint teams_slides_url_check
-  check (slides_url is null or (slides_url ~* '^https://docs\.google\.com/presentation/d/[A-Za-z0-9_-]+' and char_length(slides_url) <= 500));
+  check (slides_url is null or (slides_url ~* '^https?://[^[:space:]]+\.[^[:space:]]{2,}$' and char_length(slides_url) <= 500));
 alter table public.teams drop constraint if exists teams_gemini_chat_url_check;
 alter table public.teams add constraint teams_gemini_chat_url_check
   check (gemini_chat_url is null or (gemini_chat_url ~* '^https://(gemini\.google\.com|g\.co)/.+' and char_length(gemini_chat_url) <= 500));
@@ -553,7 +553,7 @@ begin
   return t;
 end $$;
 
--- Stage 3: the jury image (already uploaded to the bucket), the Gemini chat link and the Google Slides view link.
+-- Stage 3: the jury image (already uploaded to the bucket) and the presentation link (any URL). (The Gemini chat link is no longer asked for; p_gemini is ignored when blank.)
 create or replace function public.save_assets(p_image_path text, p_gemini text, p_slides text, p_event text default 'l2g') returns public.teams
 language plpgsql security definer set search_path = public as $$
 declare
@@ -567,13 +567,13 @@ begin
   if not exists (select 1 from storage.objects where bucket_id = 'jury-images' and name = p_image_path) then
     raise exception 'The image upload was not found. Upload it again.';
   end if;
-  if p_gemini !~* '^https://(gemini\.google\.com|g\.co)/.+' then
-    raise exception 'Paste the share link of the Gemini chat that made the image (it starts with https://gemini.google.com/).';
+  if p_gemini <> '' and p_gemini !~* '^https://(gemini\.google\.com|g\.co)/.+' then
+    raise exception 'That Gemini link is not valid (it starts with https://gemini.google.com/).';
   end if;
-  if p_slides !~* '^https://docs\.google\.com/presentation/d/[A-Za-z0-9_-]+' then
-    raise exception 'Paste a Google Slides link (it starts with https://docs.google.com/presentation/d/).';
+  if p_slides !~* '^https?://[^[:space:]]+\.[^[:space:]]{2,}$' or char_length(p_slides) > 500 then
+    raise exception 'Paste a link to your presentation (it starts with https://).';
   end if;
-  update teams set jury_image_path = p_image_path, gemini_chat_url = p_gemini, slides_url = p_slides
+  update teams set jury_image_path = p_image_path, gemini_chat_url = coalesce(nullif(p_gemini, ''), gemini_chat_url), slides_url = p_slides
    where id = t.id returning * into t;
   return t;
 end $$;
@@ -584,8 +584,8 @@ declare
   t public.teams;
 begin
   t := staged_team(p_event, 3);
-  if t.jury_image_path is null or t.gemini_chat_url is null or t.slides_url is null then
-    raise exception 'Submit the image, the Gemini link and the Slides link first.';
+  if t.jury_image_path is null or t.slides_url is null then
+    raise exception 'Submit the image and the Slides link first.';
   end if;
   update teams set assets_locked_at = coalesce(assets_locked_at, now()),
          reopened_stage = case when reopened_stage = 3 then null else reopened_stage end

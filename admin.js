@@ -13,13 +13,13 @@
     l2g: { name: "Local2Global Hack : GDGVIZAG", sub: "5&ndash;6 November 2026 &middot; Gayatri Vidya Parishad College of Engineering, Visakhapatnam", badge: "Upcoming", warn: true, confirm: true, staged: true },
   };
   let cur = "p2p"; // the event whose dashboard is open
-  const demoLine = (t) => [["Demo", t.demo_url], ["GitHub", t.github_url], ["Live website", t.live_url], ["Slides", t.slides_url], ["Gemini chat", t.gemini_chat_url]]
+  const demoLine = (t) => [["Demo", t.demo_url], ["GitHub", t.github_url], ["Live website", t.live_url], ["Presentation", t.slides_url]]
     .filter(([, u]) => isUrl(u)).map(([n, u]) => `<p><b>${n}:</b> <a href="${s(u)}" target="_blank" rel="noopener noreferrer">${s(u)}</a></p>`).join("");
   const stageLabel = (t) => (!t.locked_at ? "Stage 1: team not locked" : !t.idea_confirmed_at ? "Stage 2: problem and idea" : !t.assets_locked_at ? "Stage 3: image and slides" : !t.submitted_at ? "Stage 4: GitHub and live site" : "All stages done");
   const BUCKET = "jury-images";
   const STAGES = ["Lock team", "Problem statement and idea", "Jury image and slides", "GitHub and live website"];
   const SHORT = ["Team lock", "Problem and idea", "Image and slides", "GitHub and site"];
-  const filledStage = (t, no) => (no === 1 ? !!t.locked_at : no === 2 ? !!(t.problem_statement && t.idea) : no === 3 ? !!(t.jury_image_path && t.gemini_chat_url && t.slides_url) : !!t.submitted_at);
+  const filledStage = (t, no) => (no === 1 ? !!t.locked_at : no === 2 ? !!(t.problem_statement && t.idea) : no === 3 ? !!(t.jury_image_path && t.slides_url) : !!t.submitted_at);
   let me, isSuper = false, data = { teams: [], members: [], profiles: [], evals: [], checks: [], event: null, teamScores: [], personScores: [] };
   // Scores are kept per judge (every admin scores on their own). These turn a list of judges' rows into averages.
   const avgOf = (rows, k) => { const v = rows.map((r) => r[k]).filter((n) => n > 0); return v.length ? v.reduce((x, y) => x + y, 0) / v.length : null; };
@@ -196,7 +196,7 @@
       ${demoLine(t)}
       <div class="adm-checkgrid${isSuper ? "" : " one"}">
         ${isSuper ? `<fieldset class="adm-checks"><legend>My manual checks</legend>
-          ${box("image_ok", "Image is really from Gemini")}${box("slides_ok", "Slides link opens (view access)")}${box("github_ok", "GitHub link works")}${box("live_ok", "Live website works")}
+          ${box("image_ok", "Image is really from Gemini")}${box("slides_ok", "Presentation link opens")}${box("github_ok", "GitHub link works")}${box("live_ok", "Live website works")}
         </fieldset>` : ""}
         <fieldset class="adm-checks adm-score"><legend>Team score${isSuper ? " (yours)" : ""}</legend>
           ${score("idea_rating", "Idea")}${score("presentation_rating", "Presentation skills")}${score("website_rating", "Website")}
@@ -335,12 +335,12 @@
   function exportTeamsCsv() {
     const { groups, ev } = index();
     const avg = (xs) => (xs.length ? (xs.reduce((x, y) => x + y, 0) / xs.length).toFixed(1) : "");
-    const head = ["Team", "Team code", "Lead name", "Lead email", "Lead phone", "Members", "Team confirmed", "Member names", "Member emails", "Colleges", "Problem statement", "Idea", "Project URL", "Demo URL", "GitHub URL", "Live website URL", "Slides URL", "Gemini chat link", "Stage", "Submitted at", "Average idea rating (1-5)", "Average presentation (1-5)", "Team score: idea (1-5, average of judges)", "Team score: presentation (1-5, average of judges)", "Team score: website (1-5, average of judges)"];
+    const head = ["Team", "Team code", "Lead name", "Lead email", "Lead phone", "Members", "Team confirmed", "Member names", "Member emails", "Colleges", "Problem statement", "Idea", "Project URL", "Demo URL", "GitHub URL", "Live website URL", "Slides URL", "Stage", "Submitted at", "Average idea rating (1-5)", "Average presentation (1-5)", "Team score: idea (1-5, average of judges)", "Team score: presentation (1-5, average of judges)", "Team score: website (1-5, average of judges)"];
     const rows = groups.map(({ team: t, people }) => {
       const lead = people.find((p) => p.user_id === t.lead_id) || {};
       const rated = (k) => people.map((p) => (ev.get(p.user_id) || {})[k]).filter((n) => n > 0);
       const ck = data.checks.find((x) => x.team_id === t.id) || {};
-      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, (EVENTS[cur].staged ? t.lead_locked_at : t.locked_at) ? "Yes" : "No", people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.demo_url, t.github_url, t.live_url, t.slides_url, t.gemini_chat_url, stageLabel(t), t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating")), r1(teamAvg(t.id, "idea_rating")), r1(teamAvg(t.id, "presentation_rating")), r1(teamAvg(t.id, "website_rating"))];
+      return [t.name, t.code, lead.name, lead.email, lead.phone, people.length, (EVENTS[cur].staged ? t.lead_locked_at : t.locked_at) ? "Yes" : "No", people.map((p) => p.name).join("; "), people.map((p) => p.email).join("; "), [...new Set(people.map((p) => p.college))].join("; "), t.problem_statement, t.idea, t.project_url, t.demo_url, t.github_url, t.live_url, t.slides_url, stageLabel(t), t.submitted_at ? new Date(t.submitted_at).toLocaleString() : "Not submitted", avg(rated("idea_rating")), avg(rated("presentation_rating")), r1(teamAvg(t.id, "idea_rating")), r1(teamAvg(t.id, "presentation_rating")), r1(teamAvg(t.id, "website_rating"))];
     });
     download([head, ...rows], `gdg-vizag-${cur}-teams.csv`);
   }
