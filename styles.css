@@ -1190,3 +1190,7 @@ body:not(.has-sfx) .sfx { display: none; }
 .adm-judges { margin-top: 8px; font-size: 14px; }
 .adm-judges summary { cursor: pointer; font-weight: 600; }
 .adm-judges ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; overflow-wrap: anywhere; }
+
+/* Local2Global themes poster */
+.hk-themes-img { display: block; margin: 10px 0 6px; border-radius: 12px; overflow: hidden; border: 1px solid var(--line, rgba(128,128,128,.3)); max-width: 640px; }
+.hk-themes-img img { display: block; width: 100%; height: auto; }
