@@ -10,7 +10,7 @@
   // One entry per event. Each has its own teams, registrations and reviews in the database (matched on "event").
   const EVENTS = {
     p2p: { name: "Prompt to Product", sub: "A 5-Day AI &amp; Developer Experience &middot; Ratan Tata Innovation Hub, Visakhapatnam", badge: "Completed", warn: false },
-    l2g: { name: "Local2Global Hack : GDGVIZAG", sub: "5&ndash;6 November 2026 &middot; Gayatri Vidya Parishad College of Engineering, Visakhapatnam", badge: "Upcoming", warn: true, confirm: true, staged: true },
+    l2g: { name: "Local2Global Hack : GDGVIZAG", sub: "5&ndash;6 November 2026 &middot; Gayatri Vidya Parishad College of Engineering, Visakhapatnam", badge: "Completed", warn: true, confirm: true, staged: true },
   };
   let cur = "p2p"; // the event whose dashboard is open
   const demoLine = (t) => [["Demo", t.demo_url], ["GitHub", t.github_url], ["Live website", t.live_url], ["Presentation", t.slides_url]]

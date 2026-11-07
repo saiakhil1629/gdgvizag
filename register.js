@@ -11,7 +11,7 @@
     { event: "p2p", root: "hackathon", panel: "hk-panel", open: "hk-open", meta: "hk-meta", feed: /prompt to product/i,
       openLabel: "Team building closed", closeLabel: "Hide this message", teamsClosed: true },
     { event: "l2g", root: "local2global", panel: "l2g-panel", open: "l2g-open",
-      openLabel: "Build your team and submit here", closeLabel: "Hide team builder" },
+      openLabel: "Event closed", closeLabel: "Hide this message", teamsClosed: true },
   ];
 
   function setup(cfg) {
